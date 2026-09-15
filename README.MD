@@ -1,0 +1,382 @@
+# Multi-Agent E-Commerce Customer Support System
+
+Built with LangGraph, FastAPI, and Streamlit, this project is a supervisor-routed multi-agent AI support system for the fictional BrightCart e-commerce brand. It is designed as a portfolio and resume project demonstrating applied LLM engineering: a supervisor agent routes user queries to five specialist sub-agents, each with scoped tools, backed by PostgreSQL persistence and Pinecone RAG for policy and FAQ questions.
+
+## Architecture
+
+```mermaid
+flowchart TD
+	START([START]) --> supervisor[supervisor]
+	supervisor -->|order_agent| order_agent
+	supervisor -->|return_agent| return_agent
+	supervisor -->|product_agent| product_agent
+	supervisor -->|coupon_agent| coupon_agent
+	supervisor -->|qa_agent| qa_agent
+	supervisor -->|not_sure| END([END])
+
+	subgraph order_agent[order_agent]
+		order_llm[LLM node] --> order_condition[tools_condition]
+		order_condition -->|tools| order_tools[tools]
+		order_tools --> order_llm
+		order_condition --> order_escalation[check_escalation]
+	end
+
+	subgraph return_agent[return_agent]
+		return_llm[LLM node] --> return_condition[tools_condition]
+		return_condition -->|tools| return_tools[tools]
+		return_tools --> return_llm
+		return_condition --> return_escalation[check_escalation]
+	end
+
+	subgraph product_agent[product_agent]
+		product_llm[LLM node] --> product_condition[tools_condition]
+		product_condition -->|tools| product_tools[tools]
+		product_tools --> product_llm
+		product_condition --> product_escalation[check_escalation]
+	end
+
+	subgraph coupon_agent[coupon_agent]
+		coupon_llm[LLM node] --> coupon_condition[tools_condition]
+		coupon_condition -->|tools| coupon_tools[tools]
+		coupon_tools --> coupon_llm
+		coupon_condition --> coupon_escalation[check_escalation]
+	end
+
+	subgraph qa_agent[qa_agent]
+		qa_llm[LLM node] --> qa_condition[tools_condition]
+		qa_condition -->|tools| qa_tools[tools]
+		qa_tools --> qa_llm
+		qa_condition --> qa_escalation[check_escalation]
+	end
+
+	order_agent --> END
+	return_agent --> END
+	product_agent --> END
+	coupon_agent --> END
+	qa_agent --> END
+	order_escalation --> END
+	return_escalation --> END
+	product_escalation --> END
+	coupon_escalation --> END
+	qa_escalation --> END
+```
+
+The top-level graph uses an `AgentState` containing `messages` with an `add_messages` reducer and an optional `active_agent`. The supervisor uses ChatGroq structured output with a `RouteDecision` schema, returns a specialist name or `not_sure`, adds a clarification or greeting `AIMessage` when needed, and preserves an existing non-empty `active_agent` instead of reclassifying it.
+
+Each specialist follows `START → specialist LLM node → tools_condition → (tools → back to specialist LLM node) | (end path) → check_escalation → END`. The application uses a `PostgresSaver` checkpointer through `CHECKPOINTER_DB_URI`, while application data uses a separate SQLAlchemy connection through `DATABASE_URL`. `thread_id` and `user_id` are passed through `LangGraph config["configurable"]`.
+
+The RAG pipeline loads six policy PDFs from `Documents/`, splits them with `RecursiveCharacterTextSplitter` using 500-character chunks and 50-character overlap, creates MistralAI embeddings, and stores them in the Pinecone `ecommerce-policies` index. Policy retrieval uses MMR, Pinecone's `bge-reranker-v2-m3` reranker, and returns the top chunks through `retrieve_policy_info_tool`.
+
+## Tech Stack
+
+### Application Framework
+
+- FastAPI 0.141.1
+- Uvicorn 0.52.4
+- Starlette 1.6.0
+- Streamlit 1.62.0
+- Pydantic 2.13.4
+- SQLAlchemy 2.0.52
+- psycopg-pool 3.3.1 (PostgreSQL)
+
+### Agent/LLM
+
+- LangGraph 1.2.11
+- LangGraph Prebuilt 1.1.0
+- LangGraph Postgres checkpoint 3.1.2
+- LangChain Core 1.6.0
+- LangChain Groq 1.1.3
+- LangChain Community 0.4.2
+- LangChain Text Splitters 1.1.2
+- LangChain Pinecone 0.2.13
+- LangChain Mistralai 1.1.6
+- Groq SDK 0.37.1
+- LangSmith 0.11.1
+- python-dotenv 1.2.3
+
+### Retrieval
+
+- Pinecone 7.3.0
+- pypdf 6.16.2
+- NumPy 2.5.2
+- SciPy 1.18.0
+
+### Frontend/HTTP
+
+- HTTPX 0.28.1
+- python-multipart 0.0.32
+
+### Auth
+
+- Google OAuth through the Streamlit frontend and Google user sync API
+
+### Eval/data-gen
+
+- RAGAS 0.4.3 (planned)
+- Faker 40.37.0
+
+## Features
+
+- Order lookup, placement, cancellation, modification, and tracking
+- Product lookup for ordering, product search, and product detail lookup
+- Return creation, return status, return history, and refund coupon support
+- Active coupon listing, coupon validation, and coupon creation
+- Policy and FAQ question answering through Pinecone RAG
+- Google OAuth login and user synchronization
+- Per-user thread history with persisted LangGraph conversation state
+- Specialist escalation support through `escalate_to_supervisor`
+
+## Project Structure
+
+```text
+Customer Support AI Agent/
+├── requirements.txt                 # Python dependencies
+├── README.MD                         # Project documentation
+├── create_tables.py                  # Creates all SQLAlchemy tables
+├── embeddings.py                     # Loads policy PDFs and builds Pinecone vector store
+├── Documents/                        # Six policy and FAQ PDFs
+├── evals/ragas_eval.py               # Planned RAGAS evaluation
+├── frontend/streamlit_app.py         # Streamlit Google-login chat frontend
+├── app/
+│   ├── main.py                       # FastAPI app and CORS setup
+│   ├── agent/
+│   │   ├── agent.py                  # Main LangGraph graph and PostgreSQL checkpointer
+│   │   ├── memory.py                 # Agent memory support
+│   │   ├── system_prompts.py         # Supervisor and specialist prompts
+│   │   ├── subgraphs/                # Supervisor and specialist graphs
+│   │   └── tools/                    # Agent tool implementations and wrappers
+│   ├── api/
+│   │   ├── auth.py                   # Google user sync endpoint
+│   │   └── chat.py                   # Chat streaming and thread endpoints
+│   ├── core/
+│   │   ├── config.py                 # Application configuration
+│   │   ├── security.py               # Security module placeholder
+│   │   └── db/                        # SQLAlchemy setup and models
+│   ├── schemas/                      # API schemas
+│   ├── services/                     # Application services
+│   └── utils/imptools.py             # Product lookup helper
+├── tests/                            # Currently empty
+└── .streamlit/secrets.toml           # Streamlit Google OAuth secrets
+```
+
+## Setup & Installation
+
+### 1. Clone and install dependencies
+
+```bash
+git clone <repository-url>
+cd "Customer Support AI Agent"
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+```bash
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+source .venv/bin/activate
+```
+
+Install the requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Configure environment variables
+
+Create a `.env` file at the project root with these variables. Do not commit secret values.
+
+| Variable | Description |
+| --- | --- |
+| `CHECKPOINTER_DB_URI` | PostgreSQL connection string for LangGraph checkpoint persistence |
+| `GROQ_API_KEY` | API key for Groq chat models used by the supervisor and specialists |
+| `DATABASE_URL` | SQLAlchemy application database connection string |
+| `PINECONE_API_KEY` | Pinecone API key |
+| `MISTRAL_API_KEY` | Mistral embedding API key |
+| `API_BASE` | Base URL the Streamlit frontend uses to call FastAPI |
+
+### 3. Prepare the database and vector store
+
+Run the SQL table creation script once:
+
+```bash
+python create_tables.py
+```
+
+Run the embedding pipeline once to load the policy PDFs from `Documents/` into Pinecone:
+
+```bash
+python embeddings.py
+```
+
+### 4. Configure Google OAuth
+
+Create and configure a Google OAuth client in Google Cloud Console. Streamlit OAuth configuration is also required in `.streamlit/secrets.toml` for Google login to work.
+
+### 5. Run the application
+
+Start the FastAPI backend in one terminal:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Start the Streamlit frontend in a second terminal:
+
+```bash
+streamlit run frontend/streamlit_app.py
+```
+
+## API Reference
+
+### `GET /health`
+
+Returns the service health status.
+
+**Response:**
+
+```json
+{"status": "ok"}
+```
+
+### `POST /auth/google-sync`
+
+Finds a user by Google subject or email, updates or creates the user, and returns the database user ID.
+
+**Request body:**
+
+```json
+{"email": "string", "google_sub": "string", "name": "string or null"}
+```
+
+**Response body:**
+
+```json
+{"user_id": 123}
+```
+
+### `POST /chat/stream`
+
+Creates the thread if absent, invokes the persisted LangGraph agent, and streams assistant output. If no streamed chunks are produced, it reads the final AI message from saved graph state.
+
+**Request body:**
+
+```json
+{"thread_id": "string", "user_id": 123, "message": "string"}
+```
+
+**Response body:** HTTP streaming response with media type `text/plain`; the body contains assistant text chunks.
+
+### `GET /chat/threads?user_id=123`
+
+Lists the user's threads ordered by creation time descending.
+
+**Response body:**
+
+```json
+{"thread_ids": ["uuid-string", "uuid-string"]}
+```
+
+### `GET /chat/threads/{thread_id}/messages?user_id=123`
+
+Verifies thread ownership, retrieves LangGraph checkpoint state, and returns conversation messages.
+
+**Response body:**
+
+```json
+{"thread_id": "uuid-string", "messages": [{"role": "user or assistant", "content": "string"}]}
+```
+
+## Database Schema
+
+### `users`
+
+| Column | Details |
+| --- | --- |
+| `user_id` | Primary key, integer |
+| `email` | Unique, non-null, indexed |
+| `name` | Non-null |
+| `google_sub_id` | Unique, nullable |
+| `role` | Defaults to `customer` |
+| `created_at` | Creation timestamp |
+
+Relationship: one user has many orders.
+
+### `products`
+
+| Column | Details |
+| --- | --- |
+| `prod_id` | Primary key, integer |
+| `name` | Non-null |
+| `description` | Nullable text |
+| `price` | Non-null float |
+| `stock` | Defaults to `0` |
+| `category` | Indexed |
+
+### `orders`
+
+| Column | Details |
+| --- | --- |
+| `order_id` | Primary key, integer |
+| `user_id` | Non-null foreign key to `users.user_id` |
+| `status` | Defaults to `placed` |
+| `total_amount` | Non-null float |
+| `created_at` | Creation timestamp |
+
+Relationships: many orders belong to one user; one order has many order items and many returns.
+
+### `order_items`
+
+| Column | Details |
+| --- | --- |
+| `orderitem_id` | Primary key, integer |
+| `order_id` | Non-null foreign key to `orders.order_id` |
+| `product_id` | Non-null foreign key to `products.prod_id` |
+| `quantity` | Non-null |
+| `price_at_purchase` | Non-null float |
+
+### `returns`
+
+| Column | Details |
+| --- | --- |
+| `return_id` | Primary key, integer |
+| `order_id` | Non-null foreign key to `orders.order_id` |
+| `order_item_id` | Non-null foreign key to `order_items.orderitem_id` |
+| `reason` | Non-null text |
+| `status` | Defaults to `requested` |
+| `created_at` | Creation timestamp |
+
+### `coupons`
+
+| Column | Details |
+| --- | --- |
+| `coupon_id` | Primary key, integer |
+| `code` | Unique, non-null, indexed |
+| `discount_percent` | Non-null float |
+| `valid_till` | Non-null datetime |
+| `is_active` | Defaults to `True` |
+
+### `threads`
+
+| Column | Details |
+| --- | --- |
+| `thread_id` | Primary key, PostgreSQL UUID, generated by default |
+| `user_id` | Non-null foreign key to `users.user_id` |
+| `created_at` | Creation timestamp |
+
+## Known Limitations / Roadmap
+
+- **Coupon field reconciliation:** The coupon model defines `discount_percent`, while coupon-creation code references `discount_amount`. These fields need to be reconciled.
+- **Returns routing fix:** The returns subgraph sets `active_agent` to `order_agent` instead of `return_agent` after handling. The routing assignment needs correction.
+- **Automated tests:** No automated test suite is available yet.
+- **RAGAS evaluation:** RAGAS evaluation scaffolding is present but not yet implemented.
+- **Server-side auth:** `security.py` is not yet implemented. Thread ownership currently relies on the client-supplied `user_id` without server-side session verification.
+- **In-graph escalation:** Escalation between specialists ends the current turn instead of re-routing within the same graph execution.
+- **Deployment:** CI/CD and containerization are planned for the deployment phase.
+
+## License
+
+MIT - see `LICENSE` file.
