@@ -42,34 +42,46 @@ main_graph.add_conditional_edges(
     }
 )
 
-main_graph.add_edge("order_agent", END)
-main_graph.add_edge("return_agent", END)
-main_graph.add_edge("product_agent", END)
-main_graph.add_edge("coupon_agent", END)
-main_graph.add_edge("qa_agent", END)
+
+def route_after_specialist(state: AgentState):
+    if state.get("active_agent") in (None, "", "not_sure"):
+        return "supervisor"
+    return END
+
+
+for agent_name in ["order_agent", "return_agent", "product_agent", "coupon_agent", "qa_agent"]:
+    main_graph.add_conditional_edges(
+        agent_name,
+        route_after_specialist,
+        {"supervisor": "supervisor", END: END},
+    )
 
 agent = main_graph.compile(checkpointer=checkpointer)
 
-#TESTING CODE 
+# TESTING CODE
 from langchain_core.messages import HumanMessage
 
-config={
-    'configurable':{
-        'thread_id':'4',
-        'user_id':'1'
-    }
+config = {
+    'configurable': {
+        'thread_id': '4',
+        'user_id': '1'
+    },
+    'recursion_limit': 15,
 }
+
+
 def check_chat():
-    human=""
-    while human.strip().lower()!="exit":
-        human=input("Human: ")
-        response=agent.invoke({'messages':[HumanMessage(content=human)],'active_agent':''},config=config)
+    human = ""
+    while human.strip().lower() != "exit":
+        human = input("Human: ")
+        response = agent.invoke({'messages': [HumanMessage(content=human)], 'active_agent': ''}, config=config)
         print("Chatbot:", response['messages'][-1].content)
+
 
 def get_state_fux():
     print(agent.get_state(config=config))
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     check_chat()
-    get_state_fux()  
-    
+    get_state_fux()
