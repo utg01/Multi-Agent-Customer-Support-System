@@ -1,3 +1,4 @@
+from pinecone import Pinecone, ServerlessSpec
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_pinecone import PineconeVectorStore
@@ -21,6 +22,27 @@ pdf_files = [
     "brightcart-return-policy.pdf",
     "brightcart-shipping-delivery-policy.pdf"
 ]
+
+
+
+INDEX_NAME = "ecommerce-policies"
+
+pc = Pinecone(
+    api_key=os.getenv("PINECONE_API_KEY")
+)
+
+# Create index only if it doesn't already exist
+if INDEX_NAME not in pc.list_indexes().names():
+    pc.create_index(
+        name=INDEX_NAME,
+        dimension=1024,
+        metric="cosine",
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
+    )
+
 
 
 def create_docs(filename: str):
