@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db.base import SessionLocal  
 from app.core.db.models import User  
+from app.core.security import require_internal_caller, create_session_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -14,7 +15,7 @@ class GoogleSyncRequest(BaseModel):
     name: str | None = None
 
 
-@router.post("/google-sync")
+@router.post("/google-sync", dependencies=[Depends(require_internal_caller)])
 def google_sync(payload: GoogleSyncRequest):
     db: Session = SessionLocal()
     try:
@@ -37,6 +38,8 @@ def google_sync(payload: GoogleSyncRequest):
 
         db.commit()
         db.refresh(user)
-        return {"user_id": user.user_id}
+
+        session_token = create_session_token(user.user_id)
+        return {"session_token": session_token}
     finally:
         db.close()

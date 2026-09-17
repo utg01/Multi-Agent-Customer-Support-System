@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessageChunk
@@ -7,13 +7,13 @@ from sqlalchemy.orm import Session
 from app.agent.agent import agent
 from app.core.db.base import SessionLocal
 from app.core.db.models import Thread
+from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class ChatRequest(BaseModel):
     thread_id: str
-    user_id: int
     message: str
 
 
@@ -39,13 +39,13 @@ def _verify_thread_owner(thread_id: str, user_id: int):
 
 
 @router.post("/stream")
-async def stream_chat(payload: ChatRequest):
-    _ensure_thread_exists(payload.thread_id, payload.user_id)
+async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_user_id)):
+    _ensure_thread_exists(payload.thread_id, user_id)
 
     config = {
         "configurable": {
             "thread_id": payload.thread_id,
-            "user_id": payload.user_id,
+            "user_id": user_id,
         }
     }
 
@@ -62,10 +62,6 @@ async def stream_chat(payload: ChatRequest):
                 yielded_any = True
                 yield message_chunk.content
 
-        # Fallback: some nodes (e.g. supervisor's structured-output reply)
-        # call the LLM with .invoke() instead of .stream(), so no token
-        # chunks exist for them. In that case, pull the final answer
-        # straight from the saved state after the graph run completes.
         if not yielded_any:
             state = agent.get_state(config=config)
             messages = state.values.get("messages", [])
@@ -76,7 +72,7 @@ async def stream_chat(payload: ChatRequest):
 
 
 @router.get("/threads")
-def list_threads(user_id: int):
+def list_threads(user_id: int = Depends(get_current_user_id)):
     db: Session = SessionLocal()
     try:
         threads = (
@@ -91,7 +87,7 @@ def list_threads(user_id: int):
 
 
 @router.get("/threads/{thread_id}/messages")
-def get_thread_messages(thread_id: str, user_id: int):
+def get_thread_messages(thread_id: str, user_id: int = Depends(get_current_user_id)):
     _verify_thread_owner(thread_id, user_id)
 
     config = {"configurable": {"thread_id": thread_id}}

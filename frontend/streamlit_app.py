@@ -15,8 +15,10 @@ if not st.user.is_logged_in:
     st.button("Log in with Google", on_click=st.login)
     st.stop()
 
-# syncing with postgress after login
-if "user_id" not in st.session_state:
+# syncing with postgres after login
+INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET")
+
+if "session_token" not in st.session_state:
     resp = httpx.post(
         f"{API_BASE}/auth/google-sync",
         json={
@@ -24,11 +26,12 @@ if "user_id" not in st.session_state:
             "google_sub": st.user.sub,
             "name": st.user.get("name"),
         },
+        headers={"x-internal-secret": INTERNAL_SERVICE_SECRET},
     )
     resp.raise_for_status()
-    st.session_state["user_id"] = resp.json()["user_id"]
+    st.session_state["session_token"] = resp.json()["session_token"]
 
-user_id = st.session_state["user_id"]
+AUTH_HEADERS = {"Authorization": f"Bearer {st.session_state['session_token']}"}
 
 # **************** utility functions ****************
 def generate_thread_id():
@@ -41,14 +44,14 @@ def reset_chat():
 
 
 def fetch_threads():
-    resp = httpx.get(f"{API_BASE}/chat/threads", params={"user_id": user_id})
+    resp = httpx.get(f"{API_BASE}/chat/threads", headers=AUTH_HEADERS)
     resp.raise_for_status()
     return resp.json()["thread_ids"]
 
 
 def load_conversation(thread_id):
     resp = httpx.get(
-        f"{API_BASE}/chat/threads/{thread_id}/messages", params={"user_id": user_id}
+        f"{API_BASE}/chat/threads/{thread_id}/messages", headers=AUTH_HEADERS
     )
     resp.raise_for_status()
     return resp.json()["messages"]
@@ -103,9 +106,9 @@ if user_input:
             f"{API_BASE}/chat/stream",
             json={
                 "thread_id": st.session_state["thread_id"],
-                "user_id": user_id,
                 "message": user_input,
             },
+            headers=AUTH_HEADERS,
             timeout=120.0,
         ) as response:
             for chunk in response.iter_text():

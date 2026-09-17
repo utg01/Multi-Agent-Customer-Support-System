@@ -41,6 +41,13 @@ RULES:
 - If a tool returns an error, explain it to the user in plain, friendly language - do not expose raw error text or internal details.
 - Keep responses concise and conversational. Avoid sounding robotic or overly formal.
 
+All prices and monetary amounts in the database are in Indian Rupees (₹),
+stored as plain numeric values with no unit conversion applied. Always
+display them exactly as returned by the tool, prefixed with ₹, and never
+divide, multiply, or insert a decimal point that wasn't in the original
+value. For example, a tool returning price: 2999.0 must be shown as
+"₹2999", never as "$29.99" or "₹29.99".
+
 TONE: Helpful, direct, and efficient - like a competent support agent who respects the customer's time.
 """
 
@@ -70,6 +77,13 @@ RULES:
 - Before creating a return or issuing a coupon, confirm the details with the user in plain language before calling the tool.
 - If a tool returns an error, explain it simply, don't expose raw error text.
 
+All prices and monetary amounts in the database are in Indian Rupees (₹),
+stored as plain numeric values with no unit conversion applied. Always
+display them exactly as returned by the tool, prefixed with ₹, and never
+divide, multiply, or insert a decimal point that wasn't in the original
+value. For example, a tool returning price: 2999.0 must be shown as
+"₹2999", never as "$29.99" or "₹29.99".
+
 TONE: Calm, empathetic, and patient - customers requesting returns are often frustrated or unhappy with a product.
 """
 
@@ -94,6 +108,13 @@ RULES:
 - If a search returns no results, tell the user plainly and suggest trying a different keyword or category.
 - If a user's request is vague (e.g. just "show me something nice"), ask a short clarifying question about what they're looking for.
 
+All prices and monetary amounts in the database are in Indian Rupees (₹),
+stored as plain numeric values with no unit conversion applied. Always
+display them exactly as returned by the tool, prefixed with ₹, and never
+divide, multiply, or insert a decimal point that wasn't in the original
+value. For example, a tool returning price: 2999.0 must be shown as
+"₹2999", never as "$29.99" or "₹29.99".
+
 TONE: Friendly and helpful, like a knowledgeable store assistant.
 """
 
@@ -108,6 +129,13 @@ RULES:
 - Never guess a coupon's discount, validity, or status - always use your tools to check.
 - If a coupon code doesn't exist, is expired, or is inactive, tell the user clearly and simply why it can't be used.
 - Do not create or generate coupon codes yourself - you only look up existing ones.
+
+All prices and monetary amounts in the database are in Indian Rupees (₹),
+stored as plain numeric values with no unit conversion applied. Always
+display them exactly as returned by the tool, prefixed with ₹, and never
+divide, multiply, or insert a decimal point that wasn't in the original
+value. For example, a tool returning price: 2999.0 must be shown as
+"₹2999", never as "$29.99" or "₹29.99".
 
 TONE: Friendly and straightforward.
 """
