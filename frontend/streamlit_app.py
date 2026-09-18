@@ -8,12 +8,38 @@ import os
 load_dotenv()
 API_BASE = os.getenv("API_BASE") 
 
+import time
+
+def wait_for_backend():
+    """Ping /health with a generous timeout until the backend wakes up.
+    Render's free tier sleeps after inactivity — first request after
+    sleep can take 30-50s, so we handle that explicitly here instead
+    of letting the real chat/auth calls time out and error."""
+    if st.session_state.get("backend_awake"):
+        return
+
+    with st.spinner("Waking up the backend — this can take up to a minute on first load..."):
+        for attempt in range(6):  # ~6 tries, generous total wait
+            try:
+                resp = httpx.get(f"{API_BASE}/health", timeout=20.0)
+                if resp.status_code == 200:
+                    st.session_state["backend_awake"] = True
+                    return
+            except httpx.RequestError:
+                pass
+            time.sleep(10)
+
+    st.error("Backend is taking longer than usual to wake up. Please refresh in a moment.")
+    st.stop()
+
 # **************** Google login gate ****************
 if not st.user.is_logged_in:
     st.title("BrightCart Support")
     st.write("Please log in to continue.")
     st.button("Log in with Google", on_click=st.login)
     st.stop()
+
+wait_for_backend()
 
 # syncing with postgres after login
 INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET")
@@ -27,6 +53,7 @@ if "session_token" not in st.session_state:
             "name": st.user.get("name"),
         },
         headers={"x-internal-secret": INTERNAL_SERVICE_SECRET},
+        timeout=30.0,
     )
     resp.raise_for_status()
     st.session_state["session_token"] = resp.json()["session_token"]
@@ -44,14 +71,14 @@ def reset_chat():
 
 
 def fetch_threads():
-    resp = httpx.get(f"{API_BASE}/chat/threads", headers=AUTH_HEADERS)
+    resp = httpx.get(f"{API_BASE}/chat/threads",timeout=30.0, headers=AUTH_HEADERS)
     resp.raise_for_status()
     return resp.json()["thread_ids"]
 
 
 def load_conversation(thread_id):
     resp = httpx.get(
-        f"{API_BASE}/chat/threads/{thread_id}/messages", headers=AUTH_HEADERS
+        f"{API_BASE}/chat/threads/{thread_id}/messages",timeout=30.0, headers=AUTH_HEADERS
     )
     resp.raise_for_status()
     return resp.json()["messages"]
