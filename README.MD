@@ -13,7 +13,7 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 - **Grounded policy retrieval:** Policy information comes from a RAG pipeline using Pinecone vector search and cross-encoder reranking over policy documents, rather than relying on the model's recollection of company policy.
 - **Persistent memory and thread management:** LangGraph persistence stores conversation state in Postgres, while thread IDs and user IDs keep conversations organized and available across restarts.
 - **Production-shaped, not a notebook demo:** The system includes a FastAPI backend with token streaming, a Streamlit frontend with Google OAuth login, and per-user thread isolation.
-- **Deliberate security boundary between LLM and identity:** The authenticated user's identity is injected server-side into agent tool calls through configuration rather than placed in the LLM's context, so the model cannot be prompted into acting on behalf of a different user.
+- **Identity never trusted from client input, at either layer:** The LLM never sees `user_id` in its context — it's injected server-side through LangGraph config, closing prompt-injection-driven impersonation. Separately, every `/chat/*` request derives `user_id` from a signed, expiring session token rather than a client-supplied field, and `/auth/google-sync` itself is gated behind a shared internal secret so only the trusted frontend can register a user.
 - **Observable response path:** The project is monitored through the LangSmith interface. In typical chat turns, the observed end-to-end latency is approximately 3-4 seconds including tool calls, with actual timing varying by the requested action and retrieval work.
 
 ## Features
@@ -170,13 +170,9 @@ Customer Support AI Agent/
 │   │   ├── auth.py                   # Google user sync endpoint
 │   │   └── chat.py                   # Chat streaming and thread endpoints
 │   ├── core/
-│   │   ├── config.py                 # Application configuration
-│   │   ├── security.py               # Security module placeholder
+│   │   ├── security.py               # Session-token auth + internal-caller gate for /auth/google-sync
 │   │   └── db/                        # SQLAlchemy setup and models
-│   ├── schemas/                      # API schemas
-│   ├── services/                     # Application services
 │   └── utils/imptools.py             # Product lookup helper
-├── tests/                            # Currently empty
 └── .streamlit/secrets.toml           # Streamlit Google OAuth secrets
 ```
 
@@ -218,6 +214,9 @@ Create a `.env` file at the project root with these variables. Do not commit sec
 | `PINECONE_API_KEY` | Pinecone API key |
 | `MISTRAL_API_KEY` | Mistral embedding API key |
 | `API_BASE` | Base URL the Streamlit frontend uses to call FastAPI |
+| `INTERNAL_SERVICE_SECRET` | Shared secret required by the trusted frontend to call `/auth/google-sync` |
+| `SESSION_SECRET` | Secret used to sign and verify expiring session tokens |
+| `FRONTEND_ORIGIN` | Allowed Streamlit frontend origin for FastAPI CORS |
 
 ### 3. Prepare the database and vector store
 
@@ -227,10 +226,10 @@ Run the SQL table creation script once:
 python create_tables.py
 ```
 
-Run the embedding pipeline once to load the policy PDFs from `Documents/` into Pinecone:
+Run the ingestion pipeline once to load the policy PDFs from `Documents/` into Pinecone:
 
 ```bash
-python embeddings.py
+python ingest.py
 ```
 
 ### 4. Configure Google OAuth
@@ -265,7 +264,7 @@ Returns the service health status.
 
 ### `POST /auth/google-sync`
 
-Finds a user by Google subject or email, updates or creates the user, and returns the database user ID.
+Only callable by the Streamlit frontend (gated by a shared `x-internal-secret` header). Finds a user by Google subject or email, updates or creates the user, and returns a signed, expiring session token.
 
 **Request body:**
 
@@ -273,27 +272,33 @@ Finds a user by Google subject or email, updates or creates the user, and return
 {"email": "string", "google_sub": "string", "name": "string or null"}
 ```
 
+**Required header:** `x-internal-secret: <shared secret>`
+
 **Response body:**
 
 ```json
-{"user_id": 123}
+{"session_token": "string"}
 ```
 
 ### `POST /chat/stream`
 
-Creates the thread if absent, invokes the persisted LangGraph agent, and streams assistant output. If no streamed chunks are produced, it reads the final AI message from saved graph state.
+Creates the thread if absent, invokes the persisted LangGraph agent, and streams assistant output. `user_id` is derived server-side from the verified session token, never accepted as request input. If no streamed chunks are produced, it reads the final AI message from saved graph state.
 
 **Request body:**
 
 ```json
-{"thread_id": "string", "user_id": 123, "message": "string"}
+{"thread_id": "string", "message": "string"}
 ```
+
+**Required header:** `Authorization: Bearer <session_token>`
 
 **Response body:** HTTP streaming response with media type `text/plain`; the body contains assistant text chunks.
 
-### `GET /chat/threads?user_id=123`
+### `GET /chat/threads`
 
 Lists the user's threads ordered by creation time descending.
+
+**Required header:** `Authorization: Bearer <session_token>`
 
 **Response body:**
 
@@ -301,9 +306,11 @@ Lists the user's threads ordered by creation time descending.
 {"thread_ids": ["uuid-string", "uuid-string"]}
 ```
 
-### `GET /chat/threads/{thread_id}/messages?user_id=123`
+### `GET /chat/threads/{thread_id}/messages`
 
 Verifies thread ownership, retrieves LangGraph checkpoint state, and returns conversation messages.
+
+**Required header:** `Authorization: Bearer <session_token>`
 
 **Response body:**
 
