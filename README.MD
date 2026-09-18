@@ -20,8 +20,8 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 
 - SQLAlchemy-scoped database access with validated tool parameters instead of LLM-generated SQL.
 - Supervisor-based routing across five specialist agents.
-- **Order agent:** order details, user order history, order placement, item cancellation, order modification, tracking, and ordered-product lookup.
-- **Return agent:** return creation, return details, return history, refund coupons, and read-only order/product lookup.
+- **Order agent:** order details, user order history, order placement,  order modification, tracking, and ordered-product lookup.
+- **Return agent:** return creation,item cancellation, return details, return history, refund coupons, and read-only order/product lookup.
 - **Product agent:** product search and product detail lookup.
 - **Coupon agent:** active coupon listing, coupon validation, and coupon creation.
 - **Policy retrieval agent:** policy retrieval through Pinecone RAG using `retrieve_policy_info_tool`.
