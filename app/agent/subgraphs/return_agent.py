@@ -8,7 +8,7 @@ from langgraph.prebuilt.tool_node import tools_condition, ToolNode
 import os
 load_dotenv()
 from app.agent.subgraphs.supervisor_node import AgentState
-
+from app.agent.tools.order_tools import cancel_order_item
 from app.agent.tools.langchain_tool_register import (
     get_order_details_tool,
     get_user_orders_tool,
@@ -21,6 +21,7 @@ from app.agent.tools.langchain_tool_register import (
 )
 
 tools = [
+    cancel_order_item,
     get_order_details_tool,
     get_user_orders_tool,
     get_ordered_products_tool,     

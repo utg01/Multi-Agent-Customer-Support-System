@@ -24,7 +24,7 @@ order_tools = [
     get_order_details_tool,
     get_user_orders_tool,
     place_order_tool,
-    cancel_order_item_tool,
+    #cancel_order_item_tool,
     modify_order_tool,
     search_products_tool,
     get_ordered_products_tool,
