@@ -35,62 +35,8 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 
 ## Architecture
 
-```mermaid
-flowchart TD
-	START([START]) --> supervisor[supervisor]
-	supervisor -->|order_agent| order_agent
-	supervisor -->|return_agent| return_agent
-	supervisor -->|product_agent| product_agent
-	supervisor -->|coupon_agent| coupon_agent
-	supervisor -->|qa_agent| qa_agent
-	supervisor -->|not_sure| END([END])
+![LangGraph Multi-Agent Architecture](assets/architecture-diagram.png)
 
-	subgraph order_agent[order_agent]
-		order_llm[LLM node] --> order_condition[tools_condition]
-		order_condition -->|tools| order_tools[tools]
-		order_tools --> order_llm
-		order_condition --> order_escalation[check_escalation]
-	end
-
-	subgraph return_agent[return_agent]
-		return_llm[LLM node] --> return_condition[tools_condition]
-		return_condition -->|tools| return_tools[tools]
-		return_tools --> return_llm
-		return_condition --> return_escalation[check_escalation]
-	end
-
-	subgraph product_agent[product_agent]
-		product_llm[LLM node] --> product_condition[tools_condition]
-		product_condition -->|tools| product_tools[tools]
-		product_tools --> product_llm
-		product_condition --> product_escalation[check_escalation]
-	end
-
-	subgraph coupon_agent[coupon_agent]
-		coupon_llm[LLM node] --> coupon_condition[tools_condition]
-		coupon_condition -->|tools| coupon_tools[tools]
-		coupon_tools --> coupon_llm
-		coupon_condition --> coupon_escalation[check_escalation]
-	end
-
-	subgraph qa_agent[qa_agent]
-		qa_llm[LLM node] --> qa_condition[tools_condition]
-		qa_condition -->|tools| qa_tools[tools]
-		qa_tools --> qa_llm
-		qa_condition --> qa_escalation[check_escalation]
-	end
-
-	order_agent --> END
-	return_agent --> END
-	product_agent --> END
-	coupon_agent --> END
-	qa_agent --> END
-	order_escalation --> END
-	return_escalation --> END
-	product_escalation --> END
-	coupon_escalation --> END
-	qa_escalation --> END
-```
 
 The top-level graph uses an `AgentState` containing `messages` with an `add_messages` reducer and an optional `active_agent`. The supervisor uses ChatGroq structured output with a `RouteDecision` schema, returns a specialist name or `not_sure`, adds a clarification or greeting `AIMessage` when needed, and preserves an existing non-empty `active_agent` instead of reclassifying it.
 
