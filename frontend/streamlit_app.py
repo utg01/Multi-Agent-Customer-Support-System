@@ -25,9 +25,9 @@ def wait_for_backend():
                 if resp.status_code == 200:
                     st.session_state["backend_awake"] = True
                     return
-            except httpx.RequestError as e:
-                st.write(f"⚠️ health check failed: {type(e).__name__}: {e}")
-            time.sleep(10)
+            except httpx.RequestError :
+                pass
+            time.sleep(15)
 
     st.error("Backend is taking longer than usual to wake up. Please refresh in a moment.")
     st.stop()
