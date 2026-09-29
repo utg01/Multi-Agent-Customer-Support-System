@@ -37,6 +37,16 @@ def _verify_thread_owner(thread_id: str, user_id: int):
     finally:
         db.close()
 
+#LANGFUSE INTEGRATION
+
+from langfuse import get_client
+from langfuse.langchain import CallbackHandler
+
+langfuse = get_client()
+
+langfuse_handler = CallbackHandler()
+
+
 
 @router.post("/stream")
 async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_user_id)):
@@ -46,7 +56,8 @@ async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_u
         "configurable": {
             "thread_id": payload.thread_id,
             "user_id": user_id,
-        }
+        },
+        'callbacks':[langfuse_handler],
     }
 
     def event_generator():
