@@ -16,8 +16,8 @@ load_dotenv()
 checkpointer_DB_URL = os.getenv("CHECKPOINTER_DB_URI")
 pool = ConnectionPool(
     conninfo=checkpointer_DB_URL,
-    min_size=1,
-    max_size=5,
+    min_size=0,
+    max_size=1,
     kwargs={'autocommit': True, "prepare_threshold": 0},
 )
 checkpointer = PostgresSaver(pool)

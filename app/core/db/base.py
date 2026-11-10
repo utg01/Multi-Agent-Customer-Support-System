@@ -12,7 +12,12 @@ if DATABASE_URL:
             DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(scheme):]
             break
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=1,
+    max_overflow=0,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
