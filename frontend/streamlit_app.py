@@ -125,22 +125,53 @@ if user_input:
 
     # **************** FastAPI streaming ****************
     with st.chat_message("assistant"):
+        processing_placeholder = st.empty()
+        processing_placeholder.markdown(
+            """
+            <div class="processing-message" role="status" aria-live="polite">
+                <span>Processing your request</span><span class="processing-dots">...</span>
+            </div>
+            <style>
+                .processing-message {
+                    display: flex;
+                    align-items: center;
+                    gap: 2px;
+                }
+                .processing-dots {
+                    width: 18px;
+                    overflow: hidden;
+                    animation: processing-dots 1.2s steps(4, end) infinite;
+                }
+                @keyframes processing-dots {
+                    0% { width: 0; }
+                    33% { width: 6px; }
+                    66% { width: 12px; }
+                    100% { width: 18px; }
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         placeholder = st.empty()
         full_response = ""
 
-        with httpx.stream(
-            "POST",
-            f"{API_BASE}/chat/stream",
-            json={
-                "thread_id": st.session_state["thread_id"],
-                "message": user_input,
-            },
-            headers=AUTH_HEADERS,
-            timeout=120.0,
-        ) as response:
-            for chunk in response.iter_text():
-                full_response += chunk
-                placeholder.text(full_response)
+        try:
+            with httpx.stream(
+                "POST",
+                f"{API_BASE}/chat/stream",
+                json={
+                    "thread_id": st.session_state["thread_id"],
+                    "message": user_input,
+                },
+                headers=AUTH_HEADERS,
+                timeout=120.0,
+            ) as response:
+                response.raise_for_status()
+                for chunk in response.iter_text():
+                    full_response += chunk
+                    placeholder.text(full_response)
+        finally:
+            processing_placeholder.empty()
 
     st.session_state["message_history"].append(
         {"role": "assistant", "content": full_response}
