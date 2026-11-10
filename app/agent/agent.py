@@ -14,7 +14,12 @@ from app.agent.subgraphs.qa_agent import qa_agent as qa_subgraph
 load_dotenv()
 
 checkpointer_DB_URL = os.getenv("CHECKPOINTER_DB_URI")
-pool = ConnectionPool(conninfo=checkpointer_DB_URL, max_size=20, kwargs={'autocommit': True, "prepare_threshold": 0})
+pool = ConnectionPool(
+    conninfo=checkpointer_DB_URL,
+    min_size=1,
+    max_size=5,
+    kwargs={'autocommit': True, "prepare_threshold": 0},
+)
 checkpointer = PostgresSaver(pool)
 checkpointer.setup()
 
