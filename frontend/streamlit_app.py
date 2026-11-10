@@ -11,6 +11,7 @@ API_BASE = os.getenv("API_BASE")
 import time
 
 DEMO_QUERY_LIMIT = 5
+DEMO_USER_ID = 200
 
 
 def reset_demo():
@@ -98,6 +99,10 @@ if st.session_state["demo_mode"]:
     wait_for_backend()
     if "demo_history" not in st.session_state:
         reset_demo()
+    if "demo_customer" not in st.session_state:
+        response = httpx.get(f"{API_BASE}/chat/demo-info", timeout=30.0)
+        response.raise_for_status()
+        st.session_state["demo_customer"] = response.json()
 
     st.title("BrightCart Support Demo")
     st.caption(
@@ -106,6 +111,16 @@ if st.session_state["demo_mode"]:
     if st.button("Exit demo"):
         st.session_state["demo_mode"] = False
         st.rerun()
+
+    with st.sidebar:
+        st.header("Demo customer")
+        st.caption(f"Customer ID: {DEMO_USER_ID}")
+        st.write("Ordered products:")
+        for product in st.session_state["demo_customer"]["ordered_products"]:
+            st.write(
+                f"- {product['name']} x{product['quantity']} "
+                f"(${product['price']:.2f})"
+            )
 
     for message in st.session_state["demo_history"]:
         with st.chat_message(message["role"]):

@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.agent.agent import agent
 from app.core.db.base import SessionLocal
-from app.core.db.models import Thread
+from app.core.db.models import User, Product, Order, OrderItem, Thread
 from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+DEMO_USER_ID = 200
 
 
 class ChatRequest(BaseModel):
@@ -56,6 +57,83 @@ def _verify_thread_owner(thread_id: str, user_id: int):
     finally:
         db.close()
 
+
+def _ensure_demo_customer() -> list[dict]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == DEMO_USER_ID).first()
+        if not user:
+            user = User(
+                user_id=DEMO_USER_ID,
+                email="recruiter-demo@brightcart.example",
+                name="Recruiter Demo Customer",
+            )
+            db.add(user)
+            db.flush()
+
+        demo_order = db.query(Order).filter(Order.user_id == DEMO_USER_ID).first()
+        if not demo_order:
+            product_specs = [
+                ("Wireless Headphones", "Bluetooth over-ear headphones", 79.99, "Electronics"),
+                ("Travel Backpack", "Water-resistant everyday backpack", 49.99, "Accessories"),
+                ("USB-C Charging Cable", "Durable fast-charging cable", 14.99, "Electronics"),
+            ]
+            products = []
+            for name, description, price, category in product_specs:
+                product = db.query(Product).filter(Product.name == name).first()
+                if not product:
+                    product = Product(
+                        name=name,
+                        description=description,
+                        price=price,
+                        stock=25,
+                        category=category,
+                    )
+                    db.add(product)
+                    db.flush()
+                products.append(product)
+
+            demo_order = Order(
+                user_id=DEMO_USER_ID,
+                status="placed",
+                total_amount=sum(product.price for product in products),
+            )
+            db.add(demo_order)
+            db.flush()
+            for product in products:
+                db.add(
+                    OrderItem(
+                        order_id=demo_order.order_id,
+                        product_id=product.prod_id,
+                        quantity=1,
+                        price_at_purchase=product.price,
+                    )
+                )
+            db.commit()
+        else:
+            db.commit()
+
+        items = (
+            db.query(OrderItem, Product)
+            .join(Product, Product.prod_id == OrderItem.product_id)
+            .filter(OrderItem.order_id == demo_order.order_id)
+            .all()
+        )
+        return [
+            {
+                "name": product.name,
+                "quantity": item.quantity,
+                "price": item.price_at_purchase,
+            }
+            for item, product in items
+        ]
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 #LANGFUSE INTEGRATION
 
 from langfuse import get_client
@@ -95,10 +173,11 @@ async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_u
 
 @router.post("/demo-stream")
 async def demo_stream_chat(payload: DemoChatRequest):
+    _ensure_demo_customer()
     config = {
         "configurable": {
             "thread_id": f"demo-{payload.session_id}",
-            "user_id": 1,
+            "user_id": DEMO_USER_ID,
         },
         "callbacks": [langfuse_handler],
     }
@@ -115,6 +194,14 @@ async def demo_stream_chat(payload: DemoChatRequest):
                 yield content
 
     return StreamingResponse(event_generator(), media_type="text/plain")
+
+
+@router.get("/demo-info")
+def demo_info():
+    return {
+        "customer_id": DEMO_USER_ID,
+        "ordered_products": _ensure_demo_customer(),
+    }
 
 
 @router.get("/threads")
