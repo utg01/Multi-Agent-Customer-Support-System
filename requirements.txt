@@ -66,7 +66,7 @@ langchain-google-genai==4.4.3
 langchain-mistralai==1.1.6
 langchain-openai==1.6.0
 langchain-pinecone==0.2.13
-langchain-protocol==0.0.18
+langchain-protocol==0.0.20
 langchain-text-splitters==1.1.2
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0
