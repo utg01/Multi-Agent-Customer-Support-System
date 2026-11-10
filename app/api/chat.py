@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,12 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     thread_id: str
     message: str
+
+
+class DemoChatRequest(BaseModel):
+    session_id: str
+    message: str
+    query_number: int = Field(ge=1, le=5)
 
 
 def _content_to_text(content: object) -> str:
@@ -71,6 +77,30 @@ async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_u
             "user_id": user_id,
         },
         'callbacks':[langfuse_handler],
+    }
+
+    def event_generator():
+        result = agent.invoke(
+            {"messages": HumanMessage(content=payload.message)},
+            config=config,
+        )
+        messages = result.get("messages", [])
+        if messages and messages[-1].type == "ai" and messages[-1].content:
+            content = _content_to_text(messages[-1].content)
+            if content:
+                yield content
+
+    return StreamingResponse(event_generator(), media_type="text/plain")
+
+
+@router.post("/demo-stream")
+async def demo_stream_chat(payload: DemoChatRequest):
+    config = {
+        "configurable": {
+            "thread_id": f"demo-{payload.session_id}",
+            "user_id": 1,
+        },
+        "callbacks": [langfuse_handler],
     }
 
     def event_generator():

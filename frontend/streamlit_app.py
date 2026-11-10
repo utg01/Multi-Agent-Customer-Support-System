@@ -10,6 +10,54 @@ API_BASE = os.getenv("API_BASE")
 
 import time
 
+DEMO_QUERY_LIMIT = 5
+
+
+def reset_demo():
+    st.session_state["demo_mode"] = True
+    st.session_state["demo_session_id"] = str(uuid.uuid4())
+    st.session_state["demo_history"] = []
+    st.session_state["demo_query_count"] = 0
+
+
+def render_processing_loader():
+    processing_placeholder = st.empty()
+    processing_placeholder.markdown(
+        """
+        <div class="processing-message" role="status" aria-live="polite">
+            <span>Processing your request</span><span class="processing-dots">...</span>
+        </div>
+        <style>
+            .processing-message { display: flex; align-items: center; gap: 2px; }
+            .processing-dots {
+                width: 18px; overflow: hidden;
+                animation: processing-dots 1.2s steps(4, end) infinite;
+            }
+            @keyframes processing-dots {
+                0% { width: 0; } 33% { width: 6px; }
+                66% { width: 12px; } 100% { width: 18px; }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    return processing_placeholder
+
+
+def request_chat(path, payload, headers=None):
+    response_text = ""
+    with httpx.stream(
+        "POST",
+        f"{API_BASE}{path}",
+        json=payload,
+        headers=headers,
+        timeout=120.0,
+    ) as response:
+        response.raise_for_status()
+        for chunk in response.iter_text():
+            response_text += chunk
+    return response_text
+
 def wait_for_backend():
     """Ping /health with a generous timeout until the backend wakes up.
     Render's free tier sleeps after inactivity — first request after
@@ -30,6 +78,69 @@ def wait_for_backend():
             time.sleep(15)
 
     st.error("Backend is taking longer than usual to wake up. Please refresh in a moment.")
+    st.stop()
+
+# **************** Recruiter demo ****************
+if "demo_mode" not in st.session_state:
+    st.session_state["demo_mode"] = False
+
+if not st.session_state["demo_mode"] and not st.user.is_logged_in:
+    st.title("BrightCart Support")
+    st.write("Explore a five-question demo without signing in.")
+    if st.button("Try recruiter demo", type="primary"):
+        reset_demo()
+        st.rerun()
+    st.write("Or log in to access saved conversations.")
+    st.button("Log in with Google", on_click=st.login)
+    st.stop()
+
+if st.session_state["demo_mode"]:
+    wait_for_backend()
+    if "demo_history" not in st.session_state:
+        reset_demo()
+
+    st.title("BrightCart Support Demo")
+    st.caption(
+        f"Ask up to {DEMO_QUERY_LIMIT} questions. No account or saved chat history is required."
+    )
+    if st.button("Exit demo"):
+        st.session_state["demo_mode"] = False
+        st.rerun()
+
+    for message in st.session_state["demo_history"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    demo_input = st.chat_input("Try the BrightCart chatbot")
+    if demo_input:
+        if st.session_state["demo_query_count"] >= DEMO_QUERY_LIMIT:
+            st.warning("The five-question demo limit has been reached.")
+            st.stop()
+
+        st.session_state["demo_query_count"] += 1
+        st.session_state["demo_history"].append(
+            {"role": "user", "content": demo_input}
+        )
+        with st.chat_message("user"):
+            st.markdown(demo_input)
+
+        with st.chat_message("assistant"):
+            processing_placeholder = render_processing_loader()
+            try:
+                answer = request_chat(
+                    "/chat/demo-stream",
+                    {
+                        "session_id": st.session_state["demo_session_id"],
+                        "message": demo_input,
+                        "query_number": st.session_state["demo_query_count"],
+                    },
+                )
+                st.markdown(answer)
+                st.session_state["demo_history"].append(
+                    {"role": "assistant", "content": answer}
+                )
+            finally:
+                processing_placeholder.empty()
     st.stop()
 
 # **************** Google login gate ****************
@@ -125,51 +236,17 @@ if user_input:
 
     # **************** FastAPI streaming ****************
     with st.chat_message("assistant"):
-        processing_placeholder = st.empty()
-        processing_placeholder.markdown(
-            """
-            <div class="processing-message" role="status" aria-live="polite">
-                <span>Processing your request</span><span class="processing-dots">...</span>
-            </div>
-            <style>
-                .processing-message {
-                    display: flex;
-                    align-items: center;
-                    gap: 2px;
-                }
-                .processing-dots {
-                    width: 18px;
-                    overflow: hidden;
-                    animation: processing-dots 1.2s steps(4, end) infinite;
-                }
-                @keyframes processing-dots {
-                    0% { width: 0; }
-                    33% { width: 6px; }
-                    66% { width: 12px; }
-                    100% { width: 18px; }
-                }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        placeholder = st.empty()
-        full_response = ""
-
+        processing_placeholder = render_processing_loader()
         try:
-            with httpx.stream(
-                "POST",
-                f"{API_BASE}/chat/stream",
-                json={
+            full_response = request_chat(
+                "/chat/stream",
+                {
                     "thread_id": st.session_state["thread_id"],
                     "message": user_input,
                 },
                 headers=AUTH_HEADERS,
-                timeout=120.0,
-            ) as response:
-                response.raise_for_status()
-                for chunk in response.iter_text():
-                    full_response += chunk
-                    placeholder.text(full_response)
+            )
+            st.markdown(full_response)
         finally:
             processing_placeholder.empty()
 
