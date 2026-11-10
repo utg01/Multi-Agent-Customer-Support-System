@@ -1,3 +1,4 @@
 streamlit==1.62.0
+Authlib==1.7.2
 httpx==0.28.1
 python-dotenv==1.2.3
