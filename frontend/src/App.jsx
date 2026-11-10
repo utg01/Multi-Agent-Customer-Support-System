@@ -460,13 +460,11 @@ export default function App() {
           <p style={{
             color: 'var(--text-secondary)',
             fontSize: '1.05rem',
-            maxWidth: '520px',
+            maxWidth: '560px',
             margin: '0 auto 2rem auto',
             lineHeight: 1.6
           }}>
-            Production-grade multi-agent customer service. Queries are dynamically routed to 
-            dedicated subgraphs for <strong>Orders</strong>, <strong>Returns</strong>, <strong>Products</strong>, 
-            <strong>Coupons</strong>, and <strong>Policy Retrieval (RAG)</strong>.
+            Autonomous multi-agent customer support platform built with <strong>LangGraph</strong> and <strong>FastAPI</strong>. Features dynamic supervisor routing across 5 specialist subgraphs, grounded <strong>Pinecone RAG</strong> for company policies, injection-safe database actions, and persistent thread memory.
           </p>
 
           {/* TWO REQUIRED BUTTONS */}
