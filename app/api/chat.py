@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_core.messages import HumanMessage, AIMessageChunk
+from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
 
 from app.agent.agent import agent
@@ -74,27 +74,15 @@ async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_u
     }
 
     def event_generator():
-        yielded_any = False
-
-        for namespace, (message_chunk, metadata) in agent.stream(
+        result = agent.invoke(
             {"messages": HumanMessage(content=payload.message)},
             config=config,
-            stream_mode="messages",
-            subgraphs=True,
-        ):
-            if isinstance(message_chunk, AIMessageChunk) and message_chunk.content:
-                content = _content_to_text(message_chunk.content)
-                if content:
-                    yielded_any = True
-                    yield content
-
-        if not yielded_any:
-            state = agent.get_state(config=config)
-            messages = state.values.get("messages", [])
-            if messages and messages[-1].type == "ai" and messages[-1].content:
-                content = _content_to_text(messages[-1].content)
-                if content:
-                    yield content
+        )
+        messages = result.get("messages", [])
+        if messages and messages[-1].type == "ai" and messages[-1].content:
+            content = _content_to_text(messages[-1].content)
+            if content:
+                yield content
 
     return StreamingResponse(event_generator(), media_type="text/plain")
 
