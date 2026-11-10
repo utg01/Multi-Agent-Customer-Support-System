@@ -128,7 +128,6 @@ if st.session_state["demo_mode"]:
                     )
                 except httpx.HTTPError:
                     st.error("The chatbot could not process that message. Please try again.")
-        st.stop()
 
     demo_input = st.chat_input("Try the BrightCart chatbot")
     if demo_input:
@@ -243,7 +242,6 @@ if pending_chat_request:
     st.session_state["message_history"].append(
         {"role": "assistant", "content": full_response}
     )
-    st.stop()
 
 user_input = st.chat_input("Type here:")
 
