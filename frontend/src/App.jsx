@@ -30,6 +30,7 @@ marked.setOptions({
 });
 
 const API_BASE = import.meta.env.VITE_API_BASE ? import.meta.env.VITE_API_BASE.replace(/\/$/, '') : '';
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '968135237090-764ja1223aj2nsi352k4plh2qn975fke.apps.googleusercontent.com';
 const DEMO_QUERY_LIMIT = 5;
 const DEMO_USER_ID = 200;
 
@@ -244,6 +245,56 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Could not load demo info:', err);
+    }
+  };
+
+  // Official Google Identity Services button initialization
+  useEffect(() => {
+    if (showGoogleModal && window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            if (response.credential) {
+              await handleGoogleCredentialLogin(response.credential);
+            }
+          },
+        });
+        const container = document.getElementById('google-signin-btn-container');
+        if (container) {
+          container.innerHTML = '';
+          window.google.accounts.id.renderButton(container, {
+            theme: 'filled_blue',
+            size: 'large',
+            width: 320,
+            text: 'continue_with',
+            shape: 'rectangular',
+          });
+        }
+      } catch (err) {
+        console.warn('Google Identity initialization notice:', err);
+      }
+    }
+  }, [showGoogleModal]);
+
+  const handleGoogleCredentialLogin = async (credential) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/google-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      });
+      if (!res.ok) throw new Error('Google authentication failed');
+      const data = await res.json();
+      setSessionToken(data.session_token);
+      setCurrentUser(data.user);
+      localStorage.setItem('session_token', data.session_token);
+      localStorage.setItem('user_profile', JSON.stringify(data.user));
+      setShowGoogleModal(false);
+      setView('chat');
+      loadThreads(data.session_token);
+    } catch (err) {
+      alert('Google login error: ' + err.message);
     }
   };
 
@@ -549,9 +600,20 @@ export default function App() {
                 </button>
               </div>
 
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                Choose an option to sign in to BrightCart Support and unlock persistent chat history.
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+                Sign in with your Google account or continue as guest to test saved conversations.
               </p>
+
+              {/* Official Google Identity Button (renders if Client ID is configured) */}
+              <div 
+                id="google-signin-btn-container" 
+                style={{ 
+                  display: 'flex', 
+                  justifyContent: 'center', 
+                  minHeight: '44px',
+                  marginBottom: '1rem' 
+                }} 
+              />
 
               {/* Instant 1-click recruiter account */}
               <button
