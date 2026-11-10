@@ -1,13 +1,10 @@
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-from app.agent.system_prompts import return_agent_node_prompt
+from app.agent.system_prompts import prompt_with_current_time, return_agent_node_prompt
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt.tool_node import tools_condition, ToolNode
-import os
-load_dotenv()
 from app.agent.subgraphs.supervisor_node import AgentState
+from app.agent.llm_initialisation import medium_reasoning_llm
 from app.agent.tools.order_tools import cancel_order_item
 from app.agent.tools.langchain_tool_register import (
     get_order_details_tool,
@@ -33,19 +30,16 @@ tools = [
 ]
 
 
-llm=ChatGroq(
-    model='openai/gpt-oss-120b',
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-
-return_llm = llm.bind_tools(tools)
+return_llm = medium_reasoning_llm.bind_tools(tools)
 
 tool_node=ToolNode(tools)
 
 
 def return_agent_node(state: AgentState):
-    llm_input=[SystemMessage(content=return_agent_node_prompt),*state['messages']]
+    llm_input=[
+        SystemMessage(content=prompt_with_current_time(return_agent_node_prompt)),
+        *state['messages']
+    ]
     response=return_llm.invoke(llm_input)
     return {"messages": [response]}
 
@@ -68,10 +62,17 @@ return_graph.add_node("tools", tool_node)
 return_graph.add_node("check_escalation", check_escalation)
 
 return_graph.add_edge(START, "return_agent")
-return_graph.add_conditional_edges("return_agent",tools_condition)
-return_graph.add_edge("tools","return_agent")
-return_graph.add_edge("return_agent","check_escalation")
-return_graph.add_edge("check_escalation",END)
+return_graph.add_conditional_edges(
+    "return_agent",
+    tools_condition,
+    {"tools": "tools", "__end__": END},
+)
+return_graph.add_edge("tools", "check_escalation")
+return_graph.add_conditional_edges(
+    "check_escalation",
+    lambda state: "escalate" if state.get("active_agent") == "" else "continue",
+    {"escalate": END, "continue": "return_agent"},
+)
 
 return_agent=return_graph.compile()
 

@@ -1,13 +1,10 @@
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, ToolMessage
-from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-from app.agent.system_prompts import qa_agent_node_prompt
+from app.agent.system_prompts import prompt_with_current_time, qa_agent_node_prompt
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt.tool_node import tools_condition, ToolNode
-import os
-load_dotenv()
 from app.agent.subgraphs.supervisor_node import AgentState
+from app.agent.llm_initialisation import llm
 
 
 from app.agent.tools.langchain_tool_register import (
@@ -22,19 +19,16 @@ qa_tools = [
 ]
 
 
-llm=ChatGroq(
-    model='openai/gpt-oss-120b',
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-
 qa_llm = llm.bind_tools(qa_tools)
 
 tool_node=ToolNode(qa_tools)
 
 
 def qa_agent_node(state: AgentState):
-    llm_input=[SystemMessage(content=qa_agent_node_prompt),*state['messages']]
+    llm_input=[
+        SystemMessage(content=prompt_with_current_time(qa_agent_node_prompt)),
+        *state['messages']
+    ]
     response=qa_llm.invoke(llm_input)
     return {"messages": [response]}
 
@@ -55,10 +49,17 @@ qa_graph.add_node("tools", tool_node)
 qa_graph.add_node("check_escalation", check_escalation)
 
 qa_graph.add_edge(START, "qa_agent")
-qa_graph.add_conditional_edges("qa_agent",tools_condition)
-qa_graph.add_edge("tools","qa_agent")
-qa_graph.add_edge("qa_agent","check_escalation")
-qa_graph.add_edge("check_escalation",END)
+qa_graph.add_conditional_edges(
+    "qa_agent",
+    tools_condition,
+    {"tools": "tools", "__end__": END},
+)
+qa_graph.add_edge("tools", "check_escalation")
+qa_graph.add_conditional_edges(
+    "check_escalation",
+    lambda state: "escalate" if state.get("active_agent") == "" else "continue",
+    {"escalate": END, "continue": "qa_agent"},
+)
 
 qa_agent=qa_graph.compile()
 

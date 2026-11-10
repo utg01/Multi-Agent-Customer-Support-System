@@ -2,11 +2,23 @@ from app.core.db.models import Product, OrderItem, Order
 from app.utils.imptools import get_product_info
 from app.core.db.base import SessionLocal
 
-def get_ordered_products(db, order_id:int):
+def get_ordered_products(db, user_id: int, order_id: int):
 
     try:
+        order_exists = db.query(Order).filter(
+            Order.order_id == order_id,
+            Order.user_id == user_id,
+        ).first()
+        if not order_exists:
+            return {"error": "Order not found or does not belong to the user"}
+
         items = db.query(OrderItem).filter(
-            OrderItem.order_id == order_id
+            OrderItem.order_id == order_id,
+        ).join(
+            Order,
+            Order.order_id == OrderItem.order_id,
+        ).filter(
+            Order.user_id == user_id,
         ).all()
 
         ordered_products = []
@@ -62,4 +74,4 @@ def search_products(db, keyword: Optional[str]=None, category: Optional[str]=Non
     
 if __name__=='__main__':
     db=SessionLocal()
-    print(get_ordered_products(db,1))
+    print(get_ordered_products(db, 1, 1))

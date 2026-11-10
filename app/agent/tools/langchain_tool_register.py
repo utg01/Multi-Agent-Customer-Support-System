@@ -118,13 +118,18 @@ def modify_order_tool(
 # Product tools
 
 @tool
-def get_ordered_products_tool(order_id: int) -> list:
+def get_ordered_products_tool(
+    order_id: int,
+    config: RunnableConfig
+) -> list:
 
     """Get all products included in a specific order, including product ID, product name, quantity, purchase price, and order item ID. Returns a list of ordered product details or an error message."""
 
+    user_id = config["configurable"]["user_id"]
+
     db = SessionLocal()
     try:
-        return get_ordered_products(db, order_id)
+        return get_ordered_products(db, user_id, order_id)
     finally:
         db.close()
 
@@ -203,7 +208,7 @@ def list_user_returns_tool(
     config: RunnableConfig
 ) -> dict:
 
-    """Get a summary of all return requests belonging to the user, including return ID, order ID, status, and creation time. Returns a list of returns or an error message."""
+    """Get all details of every return request belonging to the user, including return ID, order ID, order item ID, reason, status, and creation time. Returns a list of returns or an error message."""
 
     user_id = config["configurable"]["user_id"]
 

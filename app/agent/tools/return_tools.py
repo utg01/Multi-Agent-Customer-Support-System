@@ -2,6 +2,17 @@ from app.core.db.models import Return, Order, OrderItem
 from app.core.db.base import SessionLocal
 
 
+def _serialize_return(return_obj: Return) -> dict:
+    return {
+        "return_id": return_obj.return_id,
+        "order_id": return_obj.order_id,
+        "order_item_id": return_obj.order_item_id,
+        "reason": return_obj.reason,
+        "status": return_obj.status,
+        "created_at": str(return_obj.created_at)
+    }
+
+
 def create_return(db, user_id: int, order_id: int, order_item_id: int, reason: str):
     """Creates a return for a given order item wrt user_id"""
 
@@ -49,14 +60,7 @@ def get_return_details(db, user_id: int, return_id: int):
         if not return_obj:
             return {"error": "Return not found or does not belong to the user"}
 
-        return {
-            "return_id": return_obj.return_id,
-            "order_id": return_obj.order_id,
-            "order_item_id": return_obj.order_item_id,
-            "reason": return_obj.reason,
-            "status": return_obj.status,
-            "created_at": str(return_obj.created_at)
-        }
+        return _serialize_return(return_obj)
 
     except Exception as e:
         print("Error fetching return details:", e)
@@ -64,7 +68,7 @@ def get_return_details(db, user_id: int, return_id: int):
 
 
 def list_user_returns(db, user_id: int):
-    """Summary list of all returns for a user"""
+    """Gets all return fields for every return belonging to a user"""
 
     try:
         returns = db.query(Return).join(Order).filter(
@@ -73,12 +77,7 @@ def list_user_returns(db, user_id: int):
 
         all_returns = []
         for r in returns:
-            all_returns.append({
-                "return_id": r.return_id,
-                "order_id": r.order_id,
-                "status": r.status,
-                "created_at": r.created_at.strftime("%d-%m-%Y %I:%M %p")
-            })
+            all_returns.append(_serialize_return(r))
 
         if not all_returns:
             return {"returns": []}

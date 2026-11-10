@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 .streamlit/secrets.toml
+~$BrightCart_QA_Test_Suites_Final.xlsx
+export_langsmith_evaluation.py
+Langsmith_evaluation.xlsx

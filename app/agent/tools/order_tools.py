@@ -16,7 +16,7 @@ def get_order_details(db: Session, user_id: int, order_id: int):
         if not order:
             return {'error': 'Order not found or does not belong to the user'}
 
-        od_product_details = get_ordered_products(db, order_id)
+        od_product_details = get_ordered_products(db, user_id, order_id)
 
         return {
             'order_id': order_id,

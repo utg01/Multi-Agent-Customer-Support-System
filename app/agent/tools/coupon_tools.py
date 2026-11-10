@@ -1,6 +1,6 @@
 from app.core.db.models import Coupon
 from app.core.db.base import SessionLocal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 import string
 
@@ -11,7 +11,7 @@ def get_active_coupons(db):
     try:
         coupons = db.query(Coupon).filter(
             Coupon.is_active == True,
-            Coupon.valid_till >= datetime.now()
+            Coupon.valid_till >= datetime.now(timezone.utc)
         ).all()
 
         all_coupons = []
@@ -47,7 +47,7 @@ def validate_coupon(db, code: str):
         if not coupon.is_active:
             return {"error": "Coupon is not active"}
 
-        if coupon.valid_till < datetime.now():
+        if coupon.valid_till < datetime.now(timezone.utc):
             return {"error": "Coupon has expired"}
 
         return {
@@ -73,7 +73,7 @@ def create_coupon(db, user_id: int, discount_amount: float, valid_days: int = 30
             code=code,
             discount_amount=discount_amount,
             discount_percent=None,
-            valid_till=datetime.now() + timedelta(days=valid_days),
+            valid_till=datetime.now(timezone.utc) + timedelta(days=valid_days),
             is_active=True
         )
         db.add(coupon)
@@ -93,4 +93,4 @@ def create_coupon(db, user_id: int, discount_amount: float, valid_days: int = 30
 
 if __name__ == '__main__':
     db = SessionLocal()
-    print(create_coupon(db, 2, 500))
+    print(validate_coupon(db,"BRIGHT10"))

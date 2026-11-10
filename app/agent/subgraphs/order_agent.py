@@ -1,13 +1,10 @@
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-from app.agent.system_prompts import order_agent_node_prompt
+from app.agent.system_prompts import order_agent_node_prompt, prompt_with_current_time
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt.tool_node import tools_condition, ToolNode
-import os
-load_dotenv()
 from app.agent.subgraphs.supervisor_node import AgentState
+from app.agent.llm_initialisation import medium_reasoning_llm
 
 from app.agent.tools.langchain_tool_register import (
     get_order_details_tool,
@@ -31,17 +28,15 @@ order_tools = [
     escalate_to_supervisor
 ]
 
-llm=ChatGroq(
-    model='openai/gpt-oss-120b',
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-order_llm = llm.bind_tools(order_tools)
+order_llm = medium_reasoning_llm.bind_tools(order_tools)
 
 tool_node=ToolNode(order_tools)
 
 def order_agent_node(state: AgentState):
-    llm_input=[SystemMessage(content=order_agent_node_prompt),*state['messages']]
+    llm_input=[
+        SystemMessage(content=prompt_with_current_time(order_agent_node_prompt)),
+        *state['messages']
+    ]
     response=order_llm.invoke(llm_input)
     return {"messages": [response]}
 
@@ -62,10 +57,17 @@ order_graph.add_node("tools", tool_node)
 order_graph.add_node("check_escalation", check_escalation)
 
 order_graph.add_edge(START, "order_agent")
-order_graph.add_conditional_edges("order_agent",tools_condition)
-order_graph.add_edge("tools","order_agent")
-order_graph.add_edge("order_agent","check_escalation")
-order_graph.add_edge("check_escalation",END)
+order_graph.add_conditional_edges(
+    "order_agent",
+    tools_condition,
+    {"tools": "tools", "__end__": END},
+)
+order_graph.add_edge("tools", "check_escalation")
+order_graph.add_conditional_edges(
+    "check_escalation",
+    lambda state: "escalate" if state.get("active_agent") == "" else "continue",
+    {"escalate": END, "continue": "order_agent"},
+)
 
 order_agent=order_graph.compile()
 

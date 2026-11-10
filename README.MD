@@ -105,13 +105,6 @@ The benchmark evidence supports using Groq's OpenAI GPT OSS models for this proj
 
 ![GPT-4.1 mini benchmark](image/README/benchmark-gpt-4-1-mini.png)
 
-### Additional project screenshots
-
-![Project screenshot 1](image/README/1793975014794.png)
-![Project screenshot 2](image/README/1793975018132.png)
-![Project screenshot 3](image/README/1793975027034.png)
-![Project screenshot 4](image/README/1793975032725.png)
-
 ### Framework & Libraries
 
 - LangGraph 1.2.11
