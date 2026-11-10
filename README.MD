@@ -192,6 +192,12 @@ Install the requirements:
 pip install -r requirements.txt
 ```
 
+The Streamlit frontend has its own dependency file for separate Streamlit Cloud deployment:
+
+```bash
+pip install -r frontend/requirements.txt
+```
+
 ### 2. Configure environment variables
 
 Create a `.env` file at the project root with these variables. Do not commit secret values.

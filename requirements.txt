@@ -1,7 +1,5 @@
 fastapi==0.141.1
 uvicorn==0.52.0
-streamlit==1.62.0
-httpx==0.28.1
 python-dotenv==1.2.3
 python-multipart==0.0.32
 
