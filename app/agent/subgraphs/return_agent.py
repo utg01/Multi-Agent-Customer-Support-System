@@ -5,12 +5,12 @@ from langchain_core.messages import SystemMessage
 from langgraph.prebuilt.tool_node import tools_condition, ToolNode
 from app.agent.subgraphs.supervisor_node import AgentState
 from app.agent.llm_initialisation import medium_reasoning_llm
-from app.agent.tools.order_tools import cancel_order_item
 from app.agent.tools.langchain_tool_register import (
     get_order_details_tool,
     get_user_orders_tool,
     get_ordered_products_tool,
     escalate_to_supervisor,
+    cancel_order_item_tool,
     create_return_tool,
     get_return_details_tool,
     list_user_returns_tool,
@@ -18,7 +18,7 @@ from app.agent.tools.langchain_tool_register import (
 )
 
 tools = [
-    cancel_order_item,
+    cancel_order_item_tool,
     get_order_details_tool,
     get_user_orders_tool,
     get_ordered_products_tool,     

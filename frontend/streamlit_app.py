@@ -22,30 +22,6 @@ def reset_demo():
     st.session_state.pop("demo_customer", None)
 
 
-def render_processing_loader():
-    processing_placeholder = st.empty()
-    processing_placeholder.markdown(
-        """
-        <div class="processing-message" role="status" aria-live="polite">
-            <span>Processing your request</span><span class="processing-dots">...</span>
-        </div>
-        <style>
-            .processing-message { display: flex; align-items: center; gap: 2px; }
-            .processing-dots {
-                width: 18px; overflow: hidden;
-                animation: processing-dots 1.2s steps(4, end) infinite;
-            }
-            @keyframes processing-dots {
-                0% { width: 0; } 33% { width: 6px; }
-                66% { width: 12px; } 100% { width: 18px; }
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    return processing_placeholder
-
-
 def request_chat(path, payload, headers=None):
     response_text = ""
     with httpx.stream(
@@ -133,6 +109,27 @@ if st.session_state["demo_mode"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    pending_demo_request = st.session_state.pop("pending_demo_request", None)
+    if pending_demo_request:
+        with st.chat_message("assistant"):
+            with st.spinner(""):
+                try:
+                    answer = request_chat(
+                        "/chat/demo-stream",
+                        {
+                            "session_id": st.session_state["demo_session_id"],
+                            "message": pending_demo_request,
+                            "query_number": st.session_state["demo_query_count"],
+                        },
+                    )
+                    st.markdown(answer)
+                    st.session_state["demo_history"].append(
+                        {"role": "assistant", "content": answer}
+                    )
+                except httpx.HTTPError:
+                    st.error("The chatbot could not process that message. Please try again.")
+        st.stop()
+
     demo_input = st.chat_input("Try the BrightCart chatbot")
     if demo_input:
         if st.session_state["demo_query_count"] >= DEMO_QUERY_LIMIT:
@@ -145,24 +142,8 @@ if st.session_state["demo_mode"]:
         )
         with st.chat_message("user"):
             st.markdown(demo_input)
-
-        with st.chat_message("assistant"):
-            processing_placeholder = render_processing_loader()
-            try:
-                answer = request_chat(
-                    "/chat/demo-stream",
-                    {
-                        "session_id": st.session_state["demo_session_id"],
-                        "message": demo_input,
-                        "query_number": st.session_state["demo_query_count"],
-                    },
-                )
-                st.markdown(answer)
-                st.session_state["demo_history"].append(
-                    {"role": "assistant", "content": answer}
-                )
-            finally:
-                processing_placeholder.empty()
+        st.session_state["pending_demo_request"] = demo_input
+        st.rerun()
     st.stop()
 
 # **************** Google login gate ****************
@@ -246,32 +227,31 @@ for message in st.session_state["message_history"]:
     with st.chat_message(message["role"]):
         st.text(message["content"])
 
-user_input = st.chat_input("Type here:")
-
-if user_input:
-    st.session_state["message_history"].append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.text(user_input)
-
-    if st.session_state["thread_id"] not in st.session_state["chat_threads"]:
-        st.session_state["chat_threads"].append(st.session_state["thread_id"])
-
-    # **************** FastAPI streaming ****************
+pending_chat_request = st.session_state.pop("pending_chat_request", None)
+if pending_chat_request:
     with st.chat_message("assistant"):
-        processing_placeholder = render_processing_loader()
-        try:
+        with st.spinner(""):
             full_response = request_chat(
                 "/chat/stream",
                 {
                     "thread_id": st.session_state["thread_id"],
-                    "message": user_input,
+                    "message": pending_chat_request,
                 },
                 headers=AUTH_HEADERS,
             )
             st.markdown(full_response)
-        finally:
-            processing_placeholder.empty()
-
     st.session_state["message_history"].append(
         {"role": "assistant", "content": full_response}
     )
+    st.stop()
+
+user_input = st.chat_input("Type here:")
+
+if user_input:
+    st.session_state["message_history"].append({"role": "user", "content": user_input})
+
+    if st.session_state["thread_id"] not in st.session_state["chat_threads"]:
+        st.session_state["chat_threads"].append(st.session_state["thread_id"])
+
+    st.session_state["pending_chat_request"] = user_input
+    st.rerun()
