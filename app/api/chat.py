@@ -17,6 +17,19 @@ class ChatRequest(BaseModel):
     message: str
 
 
+def _content_to_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(_content_to_text(item) for item in content)
+    if isinstance(content, dict):
+        if "text" in content:
+            return _content_to_text(content["text"])
+        if "content" in content:
+            return _content_to_text(content["content"])
+    return ""
+
+
 def _ensure_thread_exists(thread_id: str, user_id: int):
     db: Session = SessionLocal()
     try:
@@ -70,14 +83,18 @@ async def stream_chat(payload: ChatRequest, user_id: int = Depends(get_current_u
             subgraphs=True,
         ):
             if isinstance(message_chunk, AIMessageChunk) and message_chunk.content:
-                yielded_any = True
-                yield message_chunk.content
+                content = _content_to_text(message_chunk.content)
+                if content:
+                    yielded_any = True
+                    yield content
 
         if not yielded_any:
             state = agent.get_state(config=config)
             messages = state.values.get("messages", [])
             if messages and messages[-1].type == "ai" and messages[-1].content:
-                yield messages[-1].content
+                content = _content_to_text(messages[-1].content)
+                if content:
+                    yield content
 
     return StreamingResponse(event_generator(), media_type="text/plain")
 
