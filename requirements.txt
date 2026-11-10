@@ -12,6 +12,7 @@ pydantic==2.13.4
 joserfc==1.7.4
 
 langchain-core==1.7.6
+langchain==1.3.16
 langchain-openai==1.6.0
 langchain-groq==1.1.3
 langchain-protocol==0.0.20
