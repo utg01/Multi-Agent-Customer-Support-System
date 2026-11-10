@@ -100,9 +100,16 @@ if st.session_state["demo_mode"]:
     wait_for_backend()
     if "demo_history" not in st.session_state:
         reset_demo()
-    response = httpx.get(f"{API_BASE}/chat/demo-info", timeout=30.0)
-    response.raise_for_status()
-    st.session_state["demo_customer"] = response.json()
+    try:
+        response = httpx.get(f"{API_BASE}/chat/demo-info", timeout=60.0)
+        response.raise_for_status()
+        st.session_state["demo_customer"] = response.json()
+    except httpx.TimeoutException:
+        st.error("The demo customer data is taking too long to load. Please try again.")
+        st.stop()
+    except httpx.HTTPError:
+        st.error("The demo customer data could not be loaded. Please try again.")
+        st.stop()
 
     st.title("BrightCart Support Demo")
     st.caption(

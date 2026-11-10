@@ -73,22 +73,30 @@ def _ensure_demo_customer() -> None:
             )
             db.add(user)
             db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
-        existing_orders = get_user_orders_tool.invoke(
-            {},
-            config={"configurable": {"user_id": DEMO_USER_ID}},
+    existing_orders = get_user_orders_tool.invoke(
+        {},
+        config={"configurable": {"user_id": DEMO_USER_ID}},
+    )
+    if isinstance(existing_orders, list) and existing_orders:
+        return
+
+    db = SessionLocal()
+    try:
+        products = (
+            db.query(Product)
+            .filter(Product.stock > 0)
+            .order_by(Product.prod_id)
+            .limit(3)
+            .all()
         )
-        if not isinstance(existing_orders, list) or not existing_orders:
-            products = (
-                db.query(Product)
-                .filter(Product.stock > 0)
-                .order_by(Product.prod_id)
-                .limit(3)
-                .all()
-            )
-            for product in products:
-                place_order(db, DEMO_USER_ID, product.prod_id, 1)
-        db.commit()
+        for product in products:
+            place_order(db, DEMO_USER_ID, product.prod_id, 1)
     except Exception:
         db.rollback()
         raise
