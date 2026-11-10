@@ -6,9 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith(("postgresql://", "postgres://")):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+if DATABASE_URL:
+    for scheme in ("postgresql+psycopg2://", "postgres+psycopg2://", "postgresql://", "postgres://"):
+        if DATABASE_URL.startswith(scheme):
+            DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(scheme):]
+            break
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
