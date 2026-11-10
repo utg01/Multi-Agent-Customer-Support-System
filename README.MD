@@ -14,7 +14,7 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 - **Persistent memory and thread management:** LangGraph persistence stores conversation state in Postgres, while thread IDs and user IDs keep conversations organized and available across restarts.
 - **Production-shaped, not a notebook demo:** The system includes a FastAPI backend with token streaming, a Streamlit frontend with Google OAuth login, and per-user thread isolation.
 - **Identity never trusted from client input, at either layer:** The LLM never sees `user_id` in its context — it's injected server-side through LangGraph config, closing prompt-injection-driven impersonation. Separately, every `/chat/*` request derives `user_id` from a signed, expiring session token rather than a client-supplied field, and `/auth/google-sync` itself is gated behind a shared internal secret so only the trusted frontend can register a user.
-- **Observable response path:** The project is monitored through the LangSmith interface. In typical chat turns, the observed end-to-end latency is approximately 3-4 seconds including tool calls, with actual timing varying by the requested action and retrieval work.
+- **Observable response path:** The project is monitored through LangSmith and Langfuse callbacks. In typical chat turns, the observed end-to-end latency is approximately 3-4 seconds including tool calls, with actual timing varying by the requested action and retrieval work.
 
 ## Features
 
@@ -26,21 +26,44 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 - **Coupon agent:** active coupon listing, coupon validation, and coupon creation.
 - **Policy retrieval agent:** policy retrieval through Pinecone RAG using `retrieve_policy_info_tool`.
 - `escalate_to_supervisor` is available to every specialist for formal escalation.
-- The supervisor uses the smaller `openai/gpt-oss-20b` model to reduce cost and is activated again only when the active specialist sets `active_agent` to `not_sure`, rather than on every turn.
-- Specialist agents use `openai/gpt-oss-120b` for their domain work.
+- The supervisor and specialist model wiring is centralized in `app/agent/llm_initialisation.py`.
+- The currently active configuration uses OpenAI `gpt-4o-mini`; a Groq configuration for `openai/gpt-oss-20b` (supervisor) and `openai/gpt-oss-120b` (specialists) is retained there for easy switching.
 - Google OAuth login and user synchronization.
 - Per-user thread isolation and persisted chat history.
 - Streaming assistant responses through the FastAPI backend.
 - LangSmith monitoring of graph execution, tool calls, and approximate response latency.
+- Langfuse tracing for backend and QA-runner LangChain callbacks.
 
 ## Architecture
 
 ![LangGraph Multi-Agent Architecture](assets/architecture-diagram.png)
 
+### Individual agent architecture
 
-The top-level graph uses an `AgentState` containing `messages` with an `add_messages` reducer and an optional `active_agent`. The supervisor uses ChatGroq structured output with a `RouteDecision` schema, returns a specialist name or `not_sure`, adds a clarification or greeting `AIMessage` when needed, and preserves an existing non-empty `active_agent` instead of reclassifying it.
+Each specialist is an independent LangGraph subgraph with the same execution pattern:
 
-Each specialist follows `START → specialist LLM node → tools_condition → (tools → back to specialist LLM node) | (end path) → check_escalation → END`. The application uses a `PostgresSaver` checkpointer through `CHECKPOINTER_DB_URI`, while application data uses a separate SQLAlchemy connection through `DATABASE_URL`. `thread_id` and `user_id` are passed through `LangGraph config["configurable"]`.
+```text
+START -> specialist LLM -> tools_condition
+                              |
+                              +-> END (final answer)
+                              |
+                              +-> tools -> check_escalation
+                                             |
+                                             +-> END (escalate)
+                                             |
+                                             +-> specialist LLM (continue)
+```
+
+The order, return, product, coupon, and QA/policy agents each bind only their own tools. All specialists can call `escalate_to_supervisor`; a normal tool result loops back to the specialist, while an escalation returns control to the top-level supervisor graph.
+
+![Individual order-agent graph](langgraph_order_agent.png)
+
+
+The top-level graph uses an `AgentState` containing `messages` with an `add_messages` reducer and an optional `active_agent`. The supervisor uses structured output with a `RouteDecision` schema, returns a specialist name or `not_sure`, adds a clarification or greeting `AIMessage` when needed, and preserves an existing non-empty `active_agent` instead of reclassifying it.
+
+Each specialist follows `START → specialist LLM node → tools_condition → (no tool call → END) | (tool call → tools → check_escalation)`. The escalation check is now a mandatory node after every tool execution: an escalation ends the specialist subgraph so the outer graph can route back to the supervisor, while a normal tool result returns to the specialist LLM node for the next step. This prevents an escalation tool call from triggering another unnecessary specialist LLM call. The application uses a `PostgresSaver` checkpointer through `CHECKPOINTER_DB_URI`, while application data uses a separate SQLAlchemy connection through `DATABASE_URL`. `thread_id` and `user_id` are passed through `LangGraph config["configurable"]`.
+
+Every supervisor and specialist system prompt receives the current local time and UTC time at invocation time, so relative dates and return-window decisions are based on a fresh clock value. For return or cancellation requests, the return agent first asks the customer for an order ID when one is not provided. It uses order-history and ordered-product lookup only after the customer says they do not know or cannot provide the ID, and confirms an identified item before any write action.
 
 The RAG pipeline loads six policy PDFs from `Documents/`, splits them with `RecursiveCharacterTextSplitter` using 500-character chunks and 50-character overlap, creates MistralAI embeddings, and stores them in the Pinecone `ecommerce-policies` index. Policy retrieval uses MMR, Pinecone's `bge-reranker-v2-m3` reranker, and returns the top chunks through `retrieve_policy_info_tool`.
 
@@ -58,10 +81,36 @@ The RAG pipeline loads six policy PDFs from `Documents/`, splits them with `Recu
 
 ### LLMs
 
-- Supervisor node: `openai/gpt-oss-20b` through Groq
-- Specialist agents: `openai/gpt-oss-120b` through Groq
+- **Current active setup:** OpenAI `gpt-4o-mini` for the supervisor, product, coupon, and QA agents; the order and return agents use the same model through the `medium_reasoning_llm` instance.
+- **Recommended Groq setup:** `openai/gpt-oss-20b` for the supervisor and `openai/gpt-oss-120b` for specialist agents, with low reasoning effort when using paid Groq API access or a developer plan.
+- Model instances are defined centrally in `app/agent/llm_initialisation.py`, so switching providers does not require changing each subgraph.
 
-The supervisor uses the smaller model for cost control and is reactivated when a specialist sets `active_agent` to `not_sure`, indicating that the current query is outside that specialist's scope.
+## LLM benchmarking and model selection
+
+The project was benchmarked on 50 queries across three setups. The measurements below are from the attached LangSmith traces and are specific to the tested runs and Groq free-tier conditions:
+
+> Benchmarked 3 LLM setups on 50 queries; a 20b-supervisor/120b-specialist split cut p50 latency [26]% and cost [10]% vs all-120b on Groq free tier; gpt-4.1-mini reached [4.7] s p50, so shipped it
+
+The benchmark evidence supports using Groq's OpenAI GPT OSS models for this project: a 20B supervisor with low reasoning and 120B specialist agents (including product, coupon, and QA) should provide the best quality/cost balance on paid API keys or a developer plan. The traces show the 20B model responding in under one second at several points, while some turns took about 10 seconds; that spread is consistent with free-tier throughput bottlenecks rather than only model-generation time.
+
+#### Groq 20B supervisor / 120B specialists
+
+![Groq GPT OSS 20B supervisor and 120B specialist benchmark](image/README/benchmark-groq-split.png)
+
+#### Groq GPT OSS 120B only
+
+![Groq GPT OSS 120B benchmark](image/README/benchmark-groq-120b.png)
+
+#### GPT-4.1 mini comparison
+
+![GPT-4.1 mini benchmark](image/README/benchmark-gpt-4-1-mini.png)
+
+### Additional project screenshots
+
+![Project screenshot 1](image/README/1793975014794.png)
+![Project screenshot 2](image/README/1793975018132.png)
+![Project screenshot 3](image/README/1793975027034.png)
+![Project screenshot 4](image/README/1793975032725.png)
 
 ### Framework & Libraries
 
@@ -69,13 +118,14 @@ The supervisor uses the smaller model for cost control and is reactivated when a
 - LangGraph Prebuilt 1.1.0
 - LangGraph Postgres checkpoint 3.1.2
 - LangChain Core 1.6.0
+- LangChain OpenAI 1.6.0
 - LangChain Groq 1.1.3
 - LangChain Community 0.4.2
 - LangChain Text Splitters 1.1.2
 - LangChain Pinecone 0.2.13
 - LangChain Mistralai 1.1.6
-- Groq SDK 0.37.1
 - LangSmith 0.11.1
+- Langfuse 4.15.6
 - python-dotenv 1.2.3
 
 ### Retrieval
@@ -108,6 +158,7 @@ Customer Support AI Agent/
 │   ├── main.py                       # FastAPI app and CORS setup
 │   ├── agent/
 │   │   ├── agent.py                  # Main LangGraph graph and PostgreSQL checkpointer
+│   │   ├── llm_initialisation.py     # Centralized OpenAI/Groq model initialization
 │   │   ├── memory.py                 # Agent memory support
 │   │   ├── system_prompts.py         # Supervisor and specialist prompts
 │   │   ├── subgraphs/                # Supervisor and specialist graphs
@@ -155,7 +206,8 @@ Create a `.env` file at the project root with these variables. Do not commit sec
 | Variable | Description |
 | --- | --- |
 | `CHECKPOINTER_DB_URI` | PostgreSQL connection string for LangGraph checkpoint persistence |
-| `GROQ_API_KEY` | API key for Groq chat models used by the supervisor and specialists |
+| `OPENAI_KEY_API` | API key for the currently active OpenAI chat models |
+| `GROQ_API_KEY` | API key for the retained Groq GPT OSS configuration |
 | `DATABASE_URL` | SQLAlchemy application database connection string |
 | `PINECONE_API_KEY` | Pinecone API key |
 | `MISTRAL_API_KEY` | Mistral embedding API key |
@@ -193,7 +245,7 @@ uvicorn app.main:app --reload --port 8000
 Start the Streamlit frontend in a second terminal:
 
 ```bash
-streamlit run frontend/streamlit_app.py
+streamlit run frontend\streamlit_app.py
 ```
 
 ## API Reference
@@ -347,6 +399,7 @@ Relationships: many orders belong to one user; one order has many order items an
 - **Payment status integrations:** Connect payment gateways to support payment verification and payment-aware cancellation workflows.
 - **Email support:** Allow the agent to automatically send the respective user an email summarizing a resolved query or confirming an action.
 - **Richer operational integrations:** Extend the tool boundary to cover shipment status, notifications, order refunds, and other verified business actions while keeping database access controlled.
+- **Multi-agent query handling:** Detect queries that span multiple domains, dispatch each subtask to the appropriate specialist, and combine the results without adding an unnecessary synthesis call for single-agent requests.
 - **Same-turn graph handoffs:** Re-route escalated requests within a single graph execution so the user does not need to send a follow-up message.
 
 ## License
