@@ -1,8 +1,44 @@
+# Python environments & caches
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Secrets & Environment variables (CRITICAL: NEVER PUSH SECRETS)
 .env
-.streamlit/secrets.toml
+.env.*
+*.env
+*.env.*
+!.env.example
+!frontend/.env.example
+secrets.toml
+.streamlit/
+*.pem
+*.key
+
+# Frontend build & dependencies
+node_modules/
+*/node_modules/
+frontend/node_modules/
+dist/
+*/dist/
+frontend/dist/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+~$*
+
+# Evaluation & sensitive exports
 ~$BrightCart_QA_Test_Suites_Final.xlsx
 export_langsmith_evaluation.py
 Langsmith_evaluation.xlsx
