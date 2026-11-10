@@ -19,6 +19,7 @@ def reset_demo():
     st.session_state["demo_session_id"] = str(uuid.uuid4())
     st.session_state["demo_history"] = []
     st.session_state["demo_query_count"] = 0
+    st.session_state.pop("demo_customer", None)
 
 
 def render_processing_loader():
@@ -99,10 +100,9 @@ if st.session_state["demo_mode"]:
     wait_for_backend()
     if "demo_history" not in st.session_state:
         reset_demo()
-    if "demo_customer" not in st.session_state:
-        response = httpx.get(f"{API_BASE}/chat/demo-info", timeout=30.0)
-        response.raise_for_status()
-        st.session_state["demo_customer"] = response.json()
+    response = httpx.get(f"{API_BASE}/chat/demo-info", timeout=30.0)
+    response.raise_for_status()
+    st.session_state["demo_customer"] = response.json()
 
     st.title("BrightCart Support Demo")
     st.caption(
@@ -119,7 +119,7 @@ if st.session_state["demo_mode"]:
         for product in st.session_state["demo_customer"]["ordered_products"]:
             st.write(
                 f"- {product['name']} x{product['quantity']} "
-                f"(${product['price']:.2f})"
+                f"(₹{product['price']:.2f})"
             )
 
     for message in st.session_state["demo_history"]:

@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.agent.agent import agent
 from app.core.db.base import SessionLocal
-from app.core.db.models import User, Product, Order, OrderItem, Thread
+from app.core.db.models import User, Product, Thread
+from app.agent.tools.langchain_tool_register import get_user_orders_tool
+from app.agent.tools.order_tools import place_order
+from app.agent.tools.product_tools import get_ordered_products
 from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -58,7 +61,7 @@ def _verify_thread_owner(thread_id: str, user_id: int):
         db.close()
 
 
-def _ensure_demo_customer() -> list[dict]:
+def _ensure_demo_customer() -> None:
     db: Session = SessionLocal()
     try:
         user = db.query(User).filter(User.user_id == DEMO_USER_ID).first()
@@ -69,67 +72,56 @@ def _ensure_demo_customer() -> list[dict]:
                 name="Recruiter Demo Customer",
             )
             db.add(user)
-            db.flush()
-
-        demo_order = db.query(Order).filter(Order.user_id == DEMO_USER_ID).first()
-        if not demo_order:
-            product_specs = [
-                ("Wireless Headphones", "Bluetooth over-ear headphones", 79.99, "Electronics"),
-                ("Travel Backpack", "Water-resistant everyday backpack", 49.99, "Accessories"),
-                ("USB-C Charging Cable", "Durable fast-charging cable", 14.99, "Electronics"),
-            ]
-            products = []
-            for name, description, price, category in product_specs:
-                product = db.query(Product).filter(Product.name == name).first()
-                if not product:
-                    product = Product(
-                        name=name,
-                        description=description,
-                        price=price,
-                        stock=25,
-                        category=category,
-                    )
-                    db.add(product)
-                    db.flush()
-                products.append(product)
-
-            demo_order = Order(
-                user_id=DEMO_USER_ID,
-                status="placed",
-                total_amount=sum(product.price for product in products),
-            )
-            db.add(demo_order)
-            db.flush()
-            for product in products:
-                db.add(
-                    OrderItem(
-                        order_id=demo_order.order_id,
-                        product_id=product.prod_id,
-                        quantity=1,
-                        price_at_purchase=product.price,
-                    )
-                )
-            db.commit()
-        else:
             db.commit()
 
-        items = (
-            db.query(OrderItem, Product)
-            .join(Product, Product.prod_id == OrderItem.product_id)
-            .filter(OrderItem.order_id == demo_order.order_id)
-            .all()
+        existing_orders = get_user_orders_tool.invoke(
+            {},
+            config={"configurable": {"user_id": DEMO_USER_ID}},
         )
-        return [
-            {
-                "name": product.name,
-                "quantity": item.quantity,
-                "price": item.price_at_purchase,
-            }
-            for item, product in items
-        ]
+        if not isinstance(existing_orders, list) or not existing_orders:
+            products = (
+                db.query(Product)
+                .filter(Product.stock > 0)
+                .order_by(Product.prod_id)
+                .limit(3)
+                .all()
+            )
+            for product in products:
+                place_order(db, DEMO_USER_ID, product.prod_id, 1)
+        db.commit()
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+def _get_demo_ordered_products() -> list[dict]:
+    _ensure_demo_customer()
+    orders = get_user_orders_tool.invoke(
+        {},
+        config={"configurable": {"user_id": DEMO_USER_ID}},
+    )
+    if not isinstance(orders, list):
+        return []
+
+    db: Session = SessionLocal()
+    try:
+        ordered_products = []
+        for order in orders:
+            if order["status"].lower() == "cancelled":
+                continue
+            products = get_ordered_products(db, DEMO_USER_ID, order["order_id"])
+            if isinstance(products, list):
+                ordered_products.extend(
+                    {
+                        "name": product["Product_name"],
+                        "quantity": product["quantity"],
+                        "price": product["price"],
+                    }
+                    for product in products
+                )
+        return ordered_products
     finally:
         db.close()
 
@@ -200,7 +192,7 @@ async def demo_stream_chat(payload: DemoChatRequest):
 def demo_info():
     return {
         "customer_id": DEMO_USER_ID,
-        "ordered_products": _ensure_demo_customer(),
+        "ordered_products": _get_demo_ordered_products(),
     }
 
 
