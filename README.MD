@@ -8,10 +8,14 @@
 - [🛠️ Engineering Highlights](#engineering-highlights)
 - [✨ Key Features](#features)
 - [🏗️ Multi-Agent Architecture & Flow](#architecture)
-- [💻 Tech Stack & Infrastructure](#tech-stack)
 - [📊 Deep-Dive LLM Benchmarking & Evaluation](#llm-benchmarking-and-model-selection)
-- [🏢 Enterprise Architecture Comparison (Amazon Rufus AI vs. BrightCart)](#enterprise-architecture-comparison-amazon-rufus-vs-brightcart)
+- [🏢 Enterprise Architecture Comparison (Amazon Rufus vs. BrightCart)](#enterprise-architecture-comparison-amazon-rufus-vs-brightcart)
 - [🚀 Future Scope & Product Roadmap](#future-scope--product-roadmap)
+- [💻 Tech Stack & Infrastructure](#tech-stack)
+- [📁 Project Structure](#project-structure)
+- [⚙️ Setup & Installation](#setup--installation)
+- [🗄️ Database Schema](#database-schema)
+- [📜 License](#license)
 
 ## Overview
 
@@ -37,13 +41,13 @@ This is a LangGraph-based multi-agent AI customer support system where a supervi
 
 ## Engineering Highlights
 
-- **Injection-safe, scoped database access:** LLM agents interact with Postgres exclusively through typed SQLAlchemy tool functions and never through raw SQL. Each specialist receives only its predefined tools, preventing SQL injection and unscoped data access while connecting the LLM to a real company's data and actions.
-- **True multi-agent orchestration, not a single mega-prompt:** A supervisor LLM classifies and routes queries to five specialist agents for orders, returns, products, coupons, and policy retrieval. Each is an independent LangGraph subgraph with its own scoped toolset, system prompt, and formal escalation path back to the supervisor.
-- **Grounded policy retrieval:** Policy information comes from a RAG pipeline using Pinecone vector search and cross-encoder reranking over policy documents, rather than relying on the model's recollection of company policy.
-- **Persistent memory and thread management:** LangGraph persistence stores conversation state in Postgres, while thread IDs and user IDs keep conversations organized and available across restarts.
-- **Production-shaped, not a notebook demo:** The system includes a FastAPI backend with token streaming, a Streamlit frontend with Google OAuth login, and per-user thread isolation.
-- **Identity never trusted from client input, at either layer:** The LLM never sees `user_id` in its context — it's injected server-side through LangGraph config, closing prompt-injection-driven impersonation. Separately, every `/chat/*` request derives `user_id` from a signed, expiring session token rather than a client-supplied field, and `/auth/google-sync` itself is gated behind a shared internal secret so only the trusted frontend can register a user.
-- **Observable response path:** The project is monitored through LangSmith and Langfuse callbacks. In typical chat turns, the observed end-to-end latency is approximately 3-4 seconds including tool calls, with actual timing varying by the requested action and retrieval work.
+- **Injection-Safe, Scoped Database Access:** LLM agents interact with PostgreSQL strictly through typed SQLAlchemy tools with pre-validated parameters—eliminating raw SQL generation and prompt-injection-driven unscoped data access.
+- **True Multi-Agent Orchestration:** A supervisor LLM classifies and routes queries across five independent LangGraph subgraphs (orders, returns, products, coupons, policy retrieval), each isolated with its own scoped toolset, system prompt, and formal escalation loop.
+- **Grounded Policy RAG:** Store policy Q&A uses Pinecone vector search paired with cross-encoder reranking over verified policy documents, preventing hallucinated company terms.
+- **Persistent Memory & State Management:** Postgres checkpointer (`PostgresSaver`) maintains conversation state across restarts, organized by `thread_id` and isolated per `user_id`.
+- **Production-Shaped, Dual-Frontend Stack:** Includes a FastAPI streaming backend with token streaming, an ultra-fast React Vite frontend with live active-agent badges, and a Streamlit frontend with Google OAuth authentication.
+- **Zero-Trust Identity Isolation:** The LLM never sees or accepts client-supplied `user_id`—it is injected server-side via LangGraph configuration. API endpoints authenticate via signed, expiring session tokens, and `/auth/google-sync` is protected by a shared internal secret.
+- **End-to-End Observability:** Full tracing of graph flows, tool calls, and latency via LangSmith and Langfuse callbacks, achieving ~3–4s typical turn turnaround.
 
 ## Features
 
@@ -88,31 +92,13 @@ The order, return, product, coupon, and QA/policy agents each bind only their ow
 ![Individual order-agent graph](langgraph_order_agent.png)
 
 
-The top-level graph uses an `AgentState` containing `messages` with an `add_messages` reducer and an optional `active_agent`. The supervisor uses structured output with a `RouteDecision` schema, returns a specialist name or `not_sure`, adds a clarification or greeting `AIMessage` when needed, and preserves an existing non-empty `active_agent` instead of reclassifying it.
+### Orchestration & State Flow Details
 
-Each specialist follows `START → specialist LLM node → tools_condition → (no tool call → END) | (tool call → tools → check_escalation)`. The escalation check is now a mandatory node after every tool execution: an escalation ends the specialist subgraph so the outer graph can route back to the supervisor, while a normal tool result returns to the specialist LLM node for the next step. This prevents an escalation tool call from triggering another unnecessary specialist LLM call. The application uses a `PostgresSaver` checkpointer through `CHECKPOINTER_DB_URI`, while application data uses a separate SQLAlchemy connection through `DATABASE_URL`. `thread_id` and `user_id` are passed through `LangGraph config["configurable"]`.
-
-Every supervisor and specialist system prompt receives the current local time and UTC time at invocation time, so relative dates and return-window decisions are based on a fresh clock value. For return or cancellation requests, the return agent first asks the customer for an order ID when one is not provided. It uses order-history and ordered-product lookup only after the customer says they do not know or cannot provide the ID, and confirms an identified item before any write action.
-
-The RAG pipeline loads six policy PDFs from `Documents/`, splits them with `RecursiveCharacterTextSplitter` using 500-character chunks and 50-character overlap, creates MistralAI embeddings, and stores them in the Pinecone `ecommerce-policies` index. Policy retrieval uses MMR, Pinecone's `bge-reranker-v2-m3` reranker, and returns the top chunks through `retrieve_policy_info_tool`.
-
-## Tech Stack
-
-### Application Framework
-
-- FastAPI 0.141.1
-- Uvicorn 0.52.4
-- Starlette 1.6.0
-- Streamlit 1.62.0
-- Pydantic 2.13.4
-- SQLAlchemy 2.0.52
-- psycopg-pool 3.3.1 (PostgreSQL)
-
-### LLMs
-
-- **Current active setup:** OpenAI `gpt-4.1-mini` for the supervisor, product, coupon, and QA agents; the order and return agents use the same model through the `medium_reasoning_llm` instance.
-- **Recommended Groq setup:** `openai/gpt-oss-20b` for the supervisor and `openai/gpt-oss-120b` for specialist agents, with low reasoning effort when using paid Groq API access or a developer plan.
-- Model instances are defined centrally in `app/agent/llm_initialisation.py`, so switching providers does not require changing each subgraph.
+- **Supervisor Routing & State (`AgentState`):** The top-level graph maintains conversation state using an `add_messages` reducer and an `active_agent` pointer. The supervisor classifies intent with a typed `RouteDecision` Pydantic schema, directly answers general greetings/clarifications, and preserves an existing non-empty `active_agent` to prevent unnecessary re-classification mid-dialogue.
+- **Mandatory Post-Tool Escalation Node:** Every specialist implements a mandatory `check_escalation` node immediately following tool execution. If an agent invokes `escalate_to_supervisor`, the subgraph halts execution at once and transfers control back to the top-level supervisor, preventing redundant specialist LLM invocations.
+- **Zero-Trust Checkpointing & Data Separation:** Graph execution state is persisted via PostgreSQL `PostgresSaver` (`CHECKPOINTER_DB_URI`), strictly separated from company business data (`DATABASE_URL`). Critical session metadata (`thread_id` and `user_id`) is injected server-side via `LangGraph config["configurable"]`.
+- **Dynamic Clock & Mutation Safety Guardrails:** System prompts receive dynamic local and UTC timestamps at every invocation, ensuring accurate return-window evaluation against live clocks. For cancellations or returns, agents require a confirmed `order_id` (prompting the customer or falling back to user order history) and confirm identified items before executing any write operations.
+- **Two-Stage Grounded Policy RAG:** Six store policy PDFs (`Documents/`) are chunked using `RecursiveCharacterTextSplitter` (500 characters, 50-character overlap), vectorized using MistralAI embeddings, and stored in Pinecone (`ecommerce-policies` index). Retrieval uses Maximal Marginal Relevance (MMR) coupled with a `bge-reranker-v2-m3` cross-encoder reranker via `retrieve_policy_info_tool` to eliminate policy hallucinations.
 
 ## LLM benchmarking and model selection
 
@@ -147,72 +133,125 @@ The project was benchmarked across 50 standardized customer support queries eval
 #### GPT-4.1 mini comparison
 ![GPT-4.1 mini benchmark](image/README/benchmark-gpt-4-1-mini.png)
 
+## Enterprise Architecture Comparison: Amazon Rufus vs. BrightCart
+
+When evaluated under equivalent enterprise conditions (assuming access to production catalog and order microservices), BrightCart implements the same foundational architecture as **Amazon Rufus**: a Query Planning supervisor, grounded policy RAG with semantic reranking, and deterministic database/API tool execution.
+
+### Feature & Capability Matrix
+
+| Capability / Enterprise Feature | Amazon Rufus AI | BrightCart Support AI | Architecture Implementation |
+| :--- | :---: | :---: | :--- |
+| **Supervisor / Query Planning Intent Routing** | ✅ Yes | ✅ Yes | LangGraph Supervisor with `RouteDecision` Pydantic schema |
+| **Grounded Policy Retrieval (RAG + Reranking)** | ✅ Yes | ✅ Yes | Pinecone Vector Store + `bge-reranker-v2-m3` Cross-Encoder |
+| **Order Status & Item Tracking** | ✅ Yes | ✅ Yes | Parameter-bound SQLAlchemy tools in `order_agent` subgraph |
+| **Item Cancellation with Confirmation** | ✅ Yes | ✅ Yes | Controlled stateful tool in `return_agent` with ID validation |
+| **Return Initiation & Return-Window Verification**| ✅ Yes | ✅ Yes | Dynamic clock injection comparing order date vs. policy window |
+| **Coupon Code Verification & Promo Application** | ✅ Yes | ✅ Yes | Dedicated `coupon_agent` with expiration and validation logic |
+| **Product Specification & Catalog Lookup** | ✅ Yes | ✅ Yes | Scoped SQLAlchemy catalog tools in `product_agent` |
+| **Zero-Trust Client Identity Isolation** | ✅ Yes | ✅ Yes | Server-injected `user_id` in LangGraph config (zero client trust) |
+| **Review Synthesis & Sentiment Aggregation** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
+| **Personalized Recommendations (Last Viewed)** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
+| **Multimodal Vision for Damaged Item Returns** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
+
+---
+
+## Future Scope & Product Roadmap
+
+- **Customer Review Synthesis Agent:** Add a dedicated `review_agent` subgraph connected to a vector index of verified customer reviews to answer qualitative sentiment queries (*"Do customers find these headphones durable for running?"*).
+- **Personalized Recommendation Engine (Last-Viewed & Affinity):** Enhance `product_agent` to ingest user browse signals and recently viewed items, performing collaborative vector search to surface tailored product alternatives.
+- **Multimodal Vision for Returns Inspection:** Integrate a vision-capable LLM into the `return_agent` (e.g., `gpt-4o-mini` vision or `llama-3.2-11b-vision` on Groq) to visually inspect customer-uploaded images of defective or broken items, automating damage verification before authorizing refunds.
+- **Human-in-the-loop Support:** Formal escalation handoff to live Zendesk / Freshdesk ticketing when an intent exceeds model confidence or requires manual manager approval.
+- **Payment Gateway Synchronization:** Direct webhook integration with Stripe / Razorpay to handle instant refunds alongside database order state updates.
+
+## Tech Stack & Infrastructure
+
+### Application Framework
+
+- FastAPI 0.141.1 (Async REST API & token streaming)
+- Uvicorn 0.52.4 (ASGI production server)
+- Starlette 1.6.0 (Underlying ASGI toolkit)
+- Pydantic 2.13.4 (Data validation & structured schemas)
+- SQLAlchemy 2.0.52 (Scoped, typed ORM database tools)
+- psycopg-pool 3.3.1 (PostgreSQL connection pooling)
+
+### LLMs
+
+- **Current active setup:** OpenAI `gpt-4.1-mini` for supervisor, product, coupon, and QA agents; order and return agents use the same model through the `medium_reasoning_llm` instance.
+- **Recommended Groq setup:** `openai/gpt-oss-20b` for the supervisor and `openai/gpt-oss-120b` for specialist agents, with low reasoning effort when using paid Groq API access or a developer plan.
+- Centralized model management in `app/agent/llm_initialisation.py` ensures seamless switching between providers without modifying subgraphs.
+
 ### Framework & Libraries
 
-- LangGraph 1.2.11
-- LangGraph Prebuilt 1.1.0
-- LangGraph Postgres checkpoint 3.1.2
-- LangChain Core 1.6.0
-- LangChain OpenAI 1.6.0
-- LangChain Groq 1.1.3
-- LangChain Community 0.4.2
-- LangChain Text Splitters 1.1.2
-- LangChain Pinecone 0.2.13
+- LangGraph 1.2.11 (Stateful multi-agent orchestration)
+- LangGraph Prebuilt 1.1.0 (Prebuilt agent node utilities)
+- LangGraph Postgres checkpoint 3.1.2 (`PostgresSaver` state persistence)
+- LangChain Core 1.6.0 & LangChain OpenAI 1.6.0
+- LangChain Groq 1.1.3 & LangChain Community 0.4.2
+- LangChain Text Splitters 1.1.2 & LangChain Pinecone 0.2.13
 - LangChain Mistralai 1.1.6
-- LangSmith 0.11.1
-- Langfuse 4.15.6
+- LangSmith 0.11.1 & Langfuse 4.15.6 (Telemetry & tracing)
 - python-dotenv 1.2.3
 
 ### Retrieval
 
-- Pinecone 7.3.0
-- pypdf 6.16.2
-- NumPy 2.5.2
-- SciPy 1.18.0
+- Pinecone 7.3.0 (Managed vector database)
+- pypdf 6.16.2 (PDF text extraction)
+- NumPy 2.5.2 & SciPy 1.18.0
 
-### Frontend/HTTP
+### Frontend & UI
 
-- HTTPX 0.28.1
-- python-multipart 0.0.32
+- Modern React + Vite frontend (`frontend/src`) with real-time token streaming and dynamic active-agent badges
+- Streamlit 1.62.0 (Alternative reference client)
+- HTTPX 0.28.1 & python-multipart 0.0.32
 
-### Auth
+### Auth & Security
 
-- Google OAuth through the Streamlit frontend and Google user sync API
+- Google OAuth via React frontend with secure backend user synchronization
+- Signed, expiring session tokens (HMAC-SHA256)
+- Server-side injected `user_id` preventing client-side identity spoofing
 
 ## Project Structure
 
 ```text
 Customer Support AI Agent/
-├── requirements.txt                 # Python dependencies
-├── README.MD                         # Project documentation
-├── create_tables.py                  # Creates all SQLAlchemy tables
-├── embeddings.py                     # Loads policy PDFs and builds Pinecone vector store
-├── Documents/                        # Six policy and FAQ PDFs
-├── evaluation/                       # Multi-model benchmarks & automated QA test suites
-│   ├── BrightCart_QA_Runner.ipynb    # End-to-end evaluation runner on test suites
-│   ├── BrightCart_QA_Test_Suites_Final.xlsx # 50 labelled queries + 20 attack prompts
-│   ├── export_all_evaluations.py     # Master script exporting LangSmith traces to Excel
-│   ├── export_4o_mini_traces.py      # GPT-4o-mini trace extractor
-│   ├── export_cost_testing_traces.py # Cost-testing trace extractor
-│   └── Langsmith_evaluation.xlsx     # Complete evaluation workbook (8 sheets)
-├── frontend/streamlit_app.py         # Streamlit Google-login chat frontend
-├── app/
-│   ├── main.py                       # FastAPI app and CORS setup
-│   ├── agent/
-│   │   ├── agent.py                  # Main LangGraph graph and PostgreSQL checkpointer
-│   │   ├── llm_initialisation.py     # Centralized OpenAI/Groq model initialization
-│   │   ├── memory.py                 # Agent memory support
-│   │   ├── system_prompts.py         # Supervisor and specialist prompts
-│   │   ├── subgraphs/                # Supervisor and specialist graphs
-│   │   └── tools/                    # Agent tool implementations and wrappers
-│   ├── api/
-│   │   ├── auth.py                   # Google user sync endpoint
-│   │   └── chat.py                   # Chat streaming and thread endpoints
-│   ├── core/
-│   │   ├── security.py               # Session-token auth + internal-caller gate for /auth/google-sync
-│   │   └── db/                        # SQLAlchemy setup and models
-│   └── utils/imptools.py             # Product lookup helper
-└── .streamlit/secrets.toml           # Streamlit Google OAuth secrets
+├── requirements.txt                 # Python backend dependencies
+├── runtime.txt                      # Python runtime version
+├── vercel.json                      # Vercel deployment configuration
+├── README.MD                        # Complete system documentation
+├── create_tables.py                 # Initializes PostgreSQL SQLAlchemy database schema
+├── embeddings.py                    # Chunks policy PDFs and populates Pinecone vector index
+├── ingest.py                        # Policy document ingestion utilities
+├── Documents/                       # Store policy & FAQ source PDFs
+├── evaluation/                      # Automated QA test suites & multi-model benchmarks
+│   ├── BrightCart_QA_Runner.ipynb   # Automated test suite runner across models
+│   ├── BrightCart_QA_Test_Suites_Final.xlsx # 50 labelled test queries + 20 adversarial prompts
+│   ├── export_all_evaluations.py    # Master trace extraction script (Excel generation)
+│   ├── export_4o_mini_traces.py     # GPT-4o-mini trace extractor
+│   ├── export_cost_testing_traces.py# Cost-testing trace extractor
+│   ├── export_langsmith_evaluation.py # Baseline project exporter
+│   └── Langsmith_evaluation.xlsx    # Full 8-sheet benchmark workbook
+├── frontend/                        # Modern React + Vite chat interface
+│   ├── src/                         # React UI components, chat stream, agent badges
+│   ├── public/                      # Static brand assets
+│   ├── package.json                 # Node dependencies
+│   └── vite.config.js               # Vite build configuration
+├── app/                             # Core FastAPI application & LangGraph agent engine
+│   ├── main.py                      # FastAPI entrypoint, lifespan, CORS, and routing
+│   ├── agent/                       # LangGraph multi-agent orchestration
+│   │   ├── agent.py                 # Top-level supervisor graph & PostgresSaver checkpointer
+│   │   ├── llm_initialisation.py    # Centralized OpenAI & Groq model configurations
+│   │   ├── system_prompts.py        # Domain-scoped system prompts & time injection
+│   │   ├── memory.py                # Checkpointer and thread state utilities
+│   │   ├── subgraphs/               # Independent specialist subgraphs (order, return, etc.)
+│   │   └── tools/                   # Validated SQLAlchemy & RAG tools
+│   ├── api/                         # REST API endpoints (/chat, /auth)
+│   │   ├── chat.py                  # SSE streaming, thread management, history
+│   │   └── auth.py                  # Google OAuth verification & user sync
+│   ├── core/                        # Infrastructure, security & database configuration
+│   │   ├── security.py              # Session token signing & internal secret validation
+│   │   └── db/                      # SQLAlchemy engine, session maker, and ORM models
+│   └── utils/imptools.py            # Product search and helper utilities
+└── assets/                          # Architecture diagrams & visual assets
 ```
 
 ## Setup & Installation
@@ -440,36 +479,6 @@ Relationships: many orders belong to one user; one order has many order items an
 | `thread_id` | Primary key, PostgreSQL UUID, generated by default |
 | `user_id` | Non-null foreign key to `users.user_id` |
 | `created_at` | Creation timestamp |
-
-## Enterprise Architecture Comparison: Amazon Rufus vs. BrightCart
-
-When evaluated under equivalent enterprise conditions (assuming access to production catalog and order microservices), BrightCart implements the same foundational architecture as **Amazon Rufus**: a Query Planning supervisor, grounded policy RAG with semantic reranking, and deterministic database/API tool execution.
-
-### Feature & Capability Matrix
-
-| Capability / Enterprise Feature | Amazon Rufus AI | BrightCart Support AI | Architecture Implementation |
-| :--- | :---: | :---: | :--- |
-| **Supervisor / Query Planning Intent Routing** | ✅ Yes | ✅ Yes | LangGraph Supervisor with `RouteDecision` Pydantic schema |
-| **Grounded Policy Retrieval (RAG + Reranking)** | ✅ Yes | ✅ Yes | Pinecone Vector Store + `bge-reranker-v2-m3` Cross-Encoder |
-| **Order Status & Item Tracking** | ✅ Yes | ✅ Yes | Parameter-bound SQLAlchemy tools in `order_agent` subgraph |
-| **Item Cancellation with Confirmation** | ✅ Yes | ✅ Yes | Controlled stateful tool in `return_agent` with ID validation |
-| **Return Initiation & Return-Window Verification**| ✅ Yes | ✅ Yes | Dynamic clock injection comparing order date vs. policy window |
-| **Coupon Code Verification & Promo Application** | ✅ Yes | ✅ Yes | Dedicated `coupon_agent` with expiration and validation logic |
-| **Product Specification & Catalog Lookup** | ✅ Yes | ✅ Yes | Scoped SQLAlchemy catalog tools in `product_agent` |
-| **Zero-Trust Client Identity Isolation** | ✅ Yes | ✅ Yes | Server-injected `user_id` in LangGraph config (zero client trust) |
-| **Review Synthesis & Sentiment Aggregation** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
-| **Personalized Recommendations (Last Viewed)** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
-| **Multimodal Vision for Damaged Item Returns** | ✅ Yes | ❌ No | *Planned (See Future Scope below)* |
-
----
-
-## Future Scope & Product Roadmap
-
-- **Customer Review Synthesis Agent:** Add a dedicated `review_agent` subgraph connected to a vector index of verified customer reviews to answer qualitative sentiment queries (*"Do customers find these headphones durable for running?"*).
-- **Personalized Recommendation Engine (Last-Viewed & Affinity):** Enhance `product_agent` to ingest user browse signals and recently viewed items, performing collaborative vector search to surface tailored product alternatives.
-- **Multimodal Vision for Returns Inspection:** Integrate a vision-capable LLM into the `return_agent` (e.g., `gpt-4o-mini` vision or `llama-3.2-11b-vision` on Groq) to visually inspect customer-uploaded images of defective or broken items, automating damage verification before authorizing refunds.
-- **Human-in-the-loop Support:** Formal escalation handoff to live Zendesk / Freshdesk ticketing when an intent exceeds model confidence or requires manual manager approval.
-- **Payment Gateway Synchronization:** Direct webhook integration with Stripe / Razorpay to handle instant refunds alongside database order state updates.
 
 ## License
 
