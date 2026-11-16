@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 OPENAI_API_KEY = os.getenv("OPENAI_KEY_API")
-SUPERVISOR_MODEL = "gpt-4o-mini"
-SPECIALIST_MODEL = "gpt-4o-mini"
+SUPERVISOR_MODEL = "gpt-4.1-mini"
+SPECIALIST_MODEL = "gpt-4.1-mini"
 
 supervisor_llm = ChatOpenAI(
     model=SUPERVISOR_MODEL,
