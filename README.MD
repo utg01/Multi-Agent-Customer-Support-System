@@ -137,9 +137,9 @@ In baseline testing, **9 out of 50 queries failed (41/50, 82% accuracy)**. The p
 **Root Cause:** Subgraphs looped between specialists or repeatedly re-escalated to the supervisor without meeting a terminal condition, resulting in `GraphRecursionError: Recursion limit of 15 reached without hitting a stop condition`.
 
 #### The Fix & Architectural Optimization
-1. **Hierarchical Intent Arbitration:** Explicitly instructed the supervisor's `RouteDecision` structured-output schema that transactional actions (cancellations, returns, order lookups) take precedence over general policy explanation when both intents coexist.
-2. **Cycle Prevention in `check_escalation`:** Hardened subgraph exit criteria so a specialist that fulfills its scoped step halts cleanly rather than ping-ponging back to the supervisor mid-turn.
-3. **Session State Retention:** Preserved `active_agent` during clarification follow-ups, preventing unnecessary supervisor re-evaluations during multi-turn item confirmations.
+1. **Hierarchical Intent Arbitration (Supervisor):** Instructed the supervisor's `RouteDecision` structured-output prompt to prioritize actionable database operations (order placement, cancellations, returns) over passive policy inquiries when both intents coexist.
+2. **Specialist Scope Isolation (`TASK FOCUS` Guardrail):** Enforced strict prompt instructions across all 5 specialists to execute their primary in-scope intent and explicitly forbade them from calling `escalate_to_supervisor` just because a secondary out-of-scope task appeared later in the user query. This eliminated premature escalation triggers into the existing `check_escalation` node and broke the recursion loop.
+3. **Session State Retention:** Preserved `active_agent` during clarification follow-ups, preventing unnecessary supervisor re-routing during multi-turn item confirmations.
 - **Outcome:** **100% Routing Accuracy (50/50)** achieved across all 50 queries in subsequent evaluation runs.
 
 ---
