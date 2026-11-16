@@ -39,6 +39,8 @@ Thumbs.db
 ~$*
 
 # Evaluation & sensitive exports
-~$BrightCart_QA_Test_Suites_Final.xlsx
-export_langsmith_evaluation.py
-Langsmith_evaluation.xlsx
+~$*
+*export_langsmith_evaluation.py
+*Langsmith_evaluation.xlsx
+evaluation/Langsmith_evaluation.xlsx
+evaluation/export_langsmith_evaluation.py

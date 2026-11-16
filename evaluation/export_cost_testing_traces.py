@@ -16,7 +16,7 @@ PROJECT_NAME = "cost testing"
 TARGET_SHEET_NAME = "cost-testing"
 WORK_DIR = Path(__file__).resolve().parent
 OUTPUT_FILE = WORK_DIR / "Langsmith_evaluation.xlsx"
-ENV_FILE = WORK_DIR / ".env"
+ENV_FILE = WORK_DIR / ".env" if (WORK_DIR / ".env").exists() else WORK_DIR.parent / ".env"
 
 load_dotenv(ENV_FILE)
 

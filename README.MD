@@ -188,6 +188,13 @@ Customer Support AI Agent/
 ├── create_tables.py                  # Creates all SQLAlchemy tables
 ├── embeddings.py                     # Loads policy PDFs and builds Pinecone vector store
 ├── Documents/                        # Six policy and FAQ PDFs
+├── evaluation/                       # Multi-model benchmarks & automated QA test suites
+│   ├── BrightCart_QA_Runner.ipynb    # End-to-end evaluation runner on test suites
+│   ├── BrightCart_QA_Test_Suites_Final.xlsx # 50 labelled queries + 20 attack prompts
+│   ├── export_all_evaluations.py     # Master script exporting LangSmith traces to Excel
+│   ├── export_4o_mini_traces.py      # GPT-4o-mini trace extractor
+│   ├── export_cost_testing_traces.py # Cost-testing trace extractor
+│   └── Langsmith_evaluation.xlsx     # Complete evaluation workbook (8 sheets)
 ├── frontend/streamlit_app.py         # Streamlit Google-login chat frontend
 ├── app/
 │   ├── main.py                       # FastAPI app and CORS setup
